@@ -84,6 +84,12 @@ def extract_completion_time(text):
     return f"{m.group(2)} {m.group(3)}" if m else "Not Specified"
 
 # ============================================================
+# MAKE PDF LINK CLICKABLE
+# ============================================================
+def make_clickable(url):
+    return f'<a href="{url}" target="_blank">📄 Open PDF</a>'
+
+# ============================================================
 # UI – DATE SELECTION
 # ============================================================
 st.info("⚠ NSE APIs are called **only after clicking the button**")
@@ -109,9 +115,14 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
             ]
 
             st.subheader("🔁 NSE Order Announcements")
-            st.dataframe(
-                orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]],
-                use_container_width=True
+
+            # Make attachment clickable in raw table
+            orders_view = orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]].copy()
+            orders_view["attchmntFile"] = orders_view["attchmntFile"].apply(make_clickable)
+
+            st.markdown(
+                orders_view.to_html(escape=False, index=False),
+                unsafe_allow_html=True
             )
 
             results = []
@@ -140,7 +151,7 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                         "Sector": eq["sector"],
                         "Impact Score": round(impact, 1),
                         "Order Date": r.Date.date(),
-                        "PDF Link": r.attchmntFile
+                        "PDF Link": make_clickable(r.attchmntFile)
                     })
 
             if results:
@@ -149,12 +160,10 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                 )
 
                 st.subheader("🧠 Order Impact Ranking")
-                st.dataframe(
-                    df.style.background_gradient(
-                        subset=["Impact Score"],
-                        cmap="RdYlGn"
-                    ),
-                    use_container_width=True
+
+                st.markdown(
+                    df.to_html(escape=False, index=False),
+                    unsafe_allow_html=True
                 )
 
                 st.download_button(
