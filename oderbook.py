@@ -28,7 +28,7 @@ def nse_session():
     return s
 
 # ============================================================
-# FETCH HISTORICAL NSE ORDERS (REAL ARCHIVE)
+# FETCH HISTORICAL NSE ORDERS
 # ============================================================
 @st.cache_data(ttl=900)
 def fetch_nse_orders_range(start_date, end_date):
@@ -44,7 +44,6 @@ def fetch_nse_orders_range(start_date, end_date):
 
     r = s.get(url, params=params, timeout=10)
     df = pd.DataFrame(r.json())
-
     df["Date"] = pd.to_datetime(df["sort_date"])
     return df
 
@@ -57,17 +56,15 @@ def fetch_nse_equity(symbol):
         s = nse_session()
         s.get("https://www.nseindia.com", timeout=5)
 
-        url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
-        r = s.get(url, timeout=5)
+        r = s.get(
+            f"https://www.nseindia.com/api/quote-equity?symbol={symbol}",
+            timeout=5
+        )
         data = r.json()
 
-        price = data.get("priceInfo", {})
-        meta = data.get("metadata", {})
-
         return {
-            "marketCap": meta.get("marketCap"),
-            "volume": price.get("totalTradedVolume", 0),
-            "sector": meta.get("industry", "NA")
+            "marketCap": data.get("metadata", {}).get("marketCap"),
+            "sector": data.get("metadata", {}).get("industry", "NA")
         }
     except:
         return None
@@ -96,28 +93,55 @@ st.info("⚠ NSE APIs are called **only after clicking the button**")
 
 col1, col2 = st.columns(2)
 end_date = col2.date_input("📅 To Date", date.today())
-start_date = col1.date_input(
-    "📅 From Date",
-    end_date - timedelta(days=30)
-)
+start_date = col1.date_input("📅 From Date", end_date - timedelta(days=30))
 
+# ============================================================
+# MAIN ACTION
+# ============================================================
 if st.button("🚀 Fetch & Analyze NSE Orders"):
     with st.spinner("Fetching historical NSE announcements…"):
         try:
             orders = fetch_nse_orders_range(start_date, end_date)
 
-            # Filter only order-related announcements
-            orders = orders[
-                orders["attchmntText"].str.contains(
-                    "order|contract|award|project|agreement|loa",
-                    case=False, na=False
-                )
-            ]
+            # -------------------------------
+            # DESCRIPTION FILTER
+            # -------------------------------
+            desc_options = ["order", "contract", "award", "project", "agreement", "loa"]
+            desc_filter = st.multiselect(
+                "🔍 Description Filter",
+                desc_options,
+                default=desc_options
+            )
 
+            if desc_filter:
+                pattern = "|".join(desc_filter)
+                orders = orders[
+                    orders["attchmntText"].str.contains(
+                        pattern, case=False, na=False
+                    )
+                ]
+
+            # -------------------------------
+            # STOCK FILTER
+            # -------------------------------
+            stock_list = sorted(orders["symbol"].unique().tolist())
+            selected_stocks = st.multiselect(
+                "🏷 Stock Filter",
+                stock_list,
+                default=stock_list
+            )
+
+            orders = orders[orders["symbol"].isin(selected_stocks)]
+
+            # -------------------------------
+            # RAW ANNOUNCEMENTS TABLE
+            # -------------------------------
             st.subheader("🔁 NSE Order Announcements")
 
-            # Make attachment clickable in raw table
-            orders_view = orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]].copy()
+            orders_view = orders[
+                ["symbol", "sm_name", "desc", "Date", "attchmntFile"]
+            ].copy()
+
             orders_view["attchmntFile"] = orders_view["attchmntFile"].apply(make_clickable)
 
             st.markdown(
@@ -125,6 +149,9 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                 unsafe_allow_html=True
             )
 
+            # -------------------------------
+            # PROCESS RESULTS
+            # -------------------------------
             results = []
 
             for sym in orders["symbol"].unique():
@@ -139,40 +166,41 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                     if not order_val:
                         continue
 
-                    impact = min((order_val / market_cap_cr) * 5, 100)
-
                     results.append({
                         "Stock": sym,
                         "Company": r.sm_name,
-                        "Order ₹Cr": round(order_val, 1),
                         "Market Cap ₹Cr": round(market_cap_cr, 0),
+                        "Order ₹Cr": round(order_val, 1),
                         "Order % MCap": round((order_val / market_cap_cr) * 100, 2),
                         "Completion Time": extract_completion_time(r.attchmntText),
                         "Sector": eq["sector"],
-                        "Impact Score": round(impact, 1),
                         "Order Date": r.Date.date(),
                         "PDF Link": make_clickable(r.attchmntFile)
                     })
 
-            if results:
-                df = pd.DataFrame(results).sort_values(
-                    "Impact Score", ascending=False
-                )
+            if not results:
+                st.warning("No qualifying orders found after applying filters.")
+                st.stop()
 
-                st.subheader("🧠 Order Impact Ranking")
+            df = pd.DataFrame(results).sort_values(
+                "Order % MCap", ascending=False
+            )
 
-                st.markdown(
-                    df.to_html(escape=False, index=False),
-                    unsafe_allow_html=True
-                )
+            # -------------------------------
+            # FINAL RESULT TABLE
+            # -------------------------------
+            st.subheader("🧠 Order Impact Ranking")
 
-                st.download_button(
-                    "⬇ Download Order Book (CSV)",
-                    df.to_csv(index=False),
-                    file_name="nse_order_intelligence.csv"
-                )
-            else:
-                st.warning("No qualifying big orders found in selected date range.")
+            st.markdown(
+                df.to_html(escape=False, index=False),
+                unsafe_allow_html=True
+            )
+
+            st.download_button(
+                "⬇ Download Order Book (CSV)",
+                df.to_csv(index=False),
+                file_name="nse_order_intelligence.csv"
+            )
 
         except Exception as e:
             st.error("NSE blocked or rate-limited the request. Retry later.")
