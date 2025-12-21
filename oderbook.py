@@ -2,10 +2,10 @@ import streamlit as st
 import requests
 import pandas as pd
 import re
-from datetime import date
+from datetime import date, timedelta
 
 # ============================================================
-# CONFIG
+# STREAMLIT CONFIG
 # ============================================================
 st.set_page_config(
     page_title="NSE Order Intelligence",
@@ -13,7 +13,7 @@ st.set_page_config(
     page_icon="📦"
 )
 
-st.title("📦 NSE Big Order Intelligence (All Orders)")
+st.title("📦 NSE Big Order Intelligence – Historical")
 
 # ============================================================
 # SAFE NSE SESSION
@@ -28,28 +28,28 @@ def nse_session():
     return s
 
 # ============================================================
-# FETCH ALL NSE ORDERS (JSON)
+# FETCH HISTORICAL NSE ORDERS (REAL ARCHIVE)
 # ============================================================
 @st.cache_data(ttl=900)
-def fetch_nse_orders():
+def fetch_nse_orders_range(start_date, end_date):
     s = nse_session()
     s.get("https://www.nseindia.com", timeout=5)
 
-    url = "https://www.nseindia.com/api/corporate-announcements?index=equities"
-    r = s.get(url, timeout=10)
+    url = "https://www.nseindia.com/api/corporate-announcements"
+    params = {
+        "index": "equities",
+        "from_date": start_date.strftime("%d-%m-%Y"),
+        "to_date": end_date.strftime("%d-%m-%Y")
+    }
 
+    r = s.get(url, params=params, timeout=10)
     df = pd.DataFrame(r.json())
 
-    df = df[df["desc"].str.contains(
-        "order|contract|award|project|loa",
-        case=False, na=False
-    )]
-
-    df["Date"] = pd.to_datetime(df["an_dt"]).dt.date
+    df["Date"] = pd.to_datetime(df["sort_date"])
     return df
 
 # ============================================================
-# FETCH EQUITY DATA
+# FETCH NSE EQUITY DATA
 # ============================================================
 @st.cache_data(ttl=900)
 def fetch_nse_equity(symbol):
@@ -62,7 +62,7 @@ def fetch_nse_equity(symbol):
         data = r.json()
 
         price = data.get("priceInfo", {})
-        meta  = data.get("metadata", {})
+        meta = data.get("metadata", {})
 
         return {
             "marketCap": meta.get("marketCap"),
@@ -80,32 +80,37 @@ def extract_order_value(text):
     return float(m.group(2).replace(",", "")) if m else None
 
 def extract_completion_time(text):
-    m = re.search(r"(within|over|in)\s(\d+)\s(year|month|months|years)", text, re.I)
+    m = re.search(r"(within|over|in)\s(\d+)\s(year|years|month|months)", text, re.I)
     return f"{m.group(2)} {m.group(3)}" if m else "Not Specified"
 
 # ============================================================
-# UI
+# UI – DATE SELECTION
 # ============================================================
 st.info("⚠ NSE APIs are called **only after clicking the button**")
 
 col1, col2 = st.columns(2)
-start_date = col1.date_input("📅 Start Date", date.today().replace(day=1))
-end_date   = col2.date_input("📅 End Date", date.today())
+end_date = col2.date_input("📅 To Date", date.today())
+start_date = col1.date_input(
+    "📅 From Date",
+    end_date - timedelta(days=30)
+)
 
 if st.button("🚀 Fetch & Analyze NSE Orders"):
-    with st.spinner("Fetching NSE announcements…"):
+    with st.spinner("Fetching historical NSE announcements…"):
         try:
-            orders = fetch_nse_orders()
+            orders = fetch_nse_orders_range(start_date, end_date)
 
-            # Date Filter
+            # Filter only order-related announcements
             orders = orders[
-                (orders["Date"] >= start_date) &
-                (orders["Date"] <= end_date)
+                orders["attchmntText"].str.contains(
+                    "order|contract|award|project|agreement|loa",
+                    case=False, na=False
+                )
             ]
 
             st.subheader("🔁 NSE Order Announcements")
             st.dataframe(
-                orders[["symbol", "desc", "Date"]],
+                orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]],
                 use_container_width=True
             )
 
@@ -116,24 +121,26 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                 if not eq or not eq["marketCap"]:
                     continue
 
-                mcap_cr = eq["marketCap"] / 1e7
+                market_cap_cr = eq["marketCap"] / 1e7
 
                 for _, r in orders[orders.symbol == sym].iterrows():
-                    order_val = extract_order_value(r.desc)
+                    order_val = extract_order_value(r.attchmntText)
                     if not order_val:
                         continue
 
-                    impact = min((order_val / mcap_cr) * 5, 100)
+                    impact = min((order_val / market_cap_cr) * 5, 100)
 
                     results.append({
                         "Stock": sym,
+                        "Company": r.sm_name,
                         "Order ₹Cr": round(order_val, 1),
-                        "Market Cap ₹Cr": round(mcap_cr, 0),
-                        "Order % MCap": round((order_val / mcap_cr) * 100, 2),
-                        "Completion Time": extract_completion_time(r.desc),
+                        "Market Cap ₹Cr": round(market_cap_cr, 0),
+                        "Order % MCap": round((order_val / market_cap_cr) * 100, 2),
+                        "Completion Time": extract_completion_time(r.attchmntText),
                         "Sector": eq["sector"],
                         "Impact Score": round(impact, 1),
-                        "Order Date": r.Date
+                        "Order Date": r.Date.date(),
+                        "PDF Link": r.attchmntFile
                     })
 
             if results:
@@ -156,10 +163,10 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                     file_name="nse_order_intelligence.csv"
                 )
             else:
-                st.warning("No qualifying orders found in selected date range.")
+                st.warning("No qualifying big orders found in selected date range.")
 
         except Exception as e:
-            st.error("NSE blocked the request. Retry later.")
+            st.error("NSE blocked or rate-limited the request. Retry later.")
             st.code(str(e))
 
 # ============================================================
@@ -168,5 +175,5 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
 st.markdown("---")
 st.markdown("""
 **Designed by – Gaurav Singh Yadav**  
-📦 NSE Order Flow | 🧠 Institutional Tracking  
+📦 NSE Order Flow | 🧠 Institutional Intelligence  
 """)
