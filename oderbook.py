@@ -7,7 +7,7 @@ import requests
 import pandas as pd
 import re
 import numpy as np
-import talib
+
 import pandas_ta as ta
 
 from datetime import datetime
