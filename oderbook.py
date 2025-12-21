@@ -113,6 +113,20 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
             st.subheader("🔁 NSE Order Announcements (Sortable)")
             st.dataframe(
                 orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]],
+                column_config={
+                    "symbol": st.column_config.LinkColumn(
+                        "Stock",
+                        help="Open in TradingView",
+                        display_text="🔗 Open",
+                        validate="^.*$",
+                        url=lambda s: f"https://www.tradingview.com/symbols/NSE-{s}/"
+                    ),
+                    "attchmntFile": st.column_config.LinkColumn(
+                        "Attachment",
+                        help="Open NSE PDF",
+                        display_text="📄 PDF"
+                    )
+                },
                 use_container_width=True
             )
 
@@ -142,7 +156,7 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                         "Sector": eq["sector"],
                         "Impact Score": round(impact, 1),
                         "Order Date": r.Date.date(),
-                        "PDF Link": r.attchmntFile
+                        "PDF": r.attchmntFile
                     })
 
             if results:
@@ -150,8 +164,25 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                     "Impact Score", ascending=False
                 )
 
-                st.subheader("🧠 Order Impact Ranking (Fully Sortable)")
-                st.dataframe(df, use_container_width=True)
+                st.subheader("🧠 Order Impact Ranking (Clickable + Sortable)")
+                st.dataframe(
+                    df,
+                    column_config={
+                        "Stock": st.column_config.LinkColumn(
+                            "Stock",
+                            help="Open in TradingView",
+                            display_text="🔗 Chart",
+                            validate="^.*$",
+                            url=lambda s: f"https://www.tradingview.com/symbols/NSE-{s}/"
+                        ),
+                        "PDF": st.column_config.LinkColumn(
+                            "Attachment",
+                            help="Open NSE PDF",
+                            display_text="📄 PDF"
+                        )
+                    },
+                    use_container_width=True
+                )
 
                 st.download_button(
                     "⬇ Download Order Book (CSV)",
