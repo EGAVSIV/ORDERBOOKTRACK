@@ -4,18 +4,6 @@ import pandas as pd
 import re
 from datetime import date, timedelta
 
-@st.cache_resource
-def get_global_nse_session():
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json",
-        "Referer": "https://www.nseindia.com/"
-    })
-    s.get("https://www.nseindia.com", timeout=5)
-    return s
-
-
 # ============================================================
 # STREAMLIT CONFIG
 # ============================================================
@@ -40,7 +28,7 @@ def nse_session():
     return s
 
 # ============================================================
-# FETCH HISTORICAL NSE ORDERS
+# FETCH HISTORICAL NSE ORDERS (REAL ARCHIVE)
 # ============================================================
 @st.cache_data(ttl=900)
 def fetch_nse_orders_range(start_date, end_date):
@@ -56,6 +44,7 @@ def fetch_nse_orders_range(start_date, end_date):
 
     r = s.get(url, params=params, timeout=10)
     df = pd.DataFrame(r.json())
+
     df["Date"] = pd.to_datetime(df["sort_date"])
     return df
 
@@ -68,10 +57,8 @@ def fetch_nse_equity(symbol):
         s = nse_session()
         s.get("https://www.nseindia.com", timeout=5)
 
-        r = s.get(
-            f"https://www.nseindia.com/api/quote-equity?symbol={symbol}",
-            timeout=5
-        )
+        url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
+        r = s.get(url, timeout=5)
         data = r.json()
 
         price = data.get("priceInfo", {})
@@ -79,6 +66,7 @@ def fetch_nse_equity(symbol):
 
         return {
             "marketCap": meta.get("marketCap"),
+            "volume": price.get("totalTradedVolume", 0),
             "sector": meta.get("industry", "NA")
         }
     except:
@@ -96,6 +84,12 @@ def extract_completion_time(text):
     return f"{m.group(2)} {m.group(3)}" if m else "Not Specified"
 
 # ============================================================
+# MAKE PDF LINK CLICKABLE
+# ============================================================
+def make_clickable(url):
+    return f'<a href="{url}" target="_blank">📄 Open PDF</a>'
+
+# ============================================================
 # UI – DATE SELECTION
 # ============================================================
 st.info("⚠ NSE APIs are called **only after clicking the button**")
@@ -107,14 +101,12 @@ start_date = col1.date_input(
     end_date - timedelta(days=30)
 )
 
-# ============================================================
-# MAIN ACTION
-# ============================================================
 if st.button("🚀 Fetch & Analyze NSE Orders"):
     with st.spinner("Fetching historical NSE announcements…"):
         try:
             orders = fetch_nse_orders_range(start_date, end_date)
 
+            # Filter only order-related announcements
             orders = orders[
                 orders["attchmntText"].str.contains(
                     "order|contract|award|project|agreement|loa",
@@ -122,24 +114,15 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                 )
             ]
 
-            st.subheader("🔁 NSE Order Announcements (Sortable)")
-            st.dataframe(
-                orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]],
-                column_config={
-                    "symbol": st.column_config.LinkColumn(
-                        "Stock",
-                        help="Open in TradingView",
-                        display_text="🔗 Open",
-                        validate="^.*$",
-                        url=lambda s: f"https://www.tradingview.com/symbols/NSE-{s}/"
-                    ),
-                    "attchmntFile": st.column_config.LinkColumn(
-                        "Attachment",
-                        help="Open NSE PDF",
-                        display_text="📄 PDF"
-                    )
-                },
-                use_container_width=True
+            st.subheader("🔁 NSE Order Announcements")
+
+            # Make attachment clickable in raw table
+            orders_view = orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]].copy()
+            orders_view["attchmntFile"] = orders_view["attchmntFile"].apply(make_clickable)
+
+            st.markdown(
+                orders_view.to_html(escape=False, index=False),
+                unsafe_allow_html=True
             )
 
             results = []
@@ -161,14 +144,14 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                     results.append({
                         "Stock": sym,
                         "Company": r.sm_name,
-                        "Market Cap ₹Cr": round(market_cap_cr, 0),
                         "Order ₹Cr": round(order_val, 1),
+                        "Market Cap ₹Cr": round(market_cap_cr, 0),
                         "Order % MCap": round((order_val / market_cap_cr) * 100, 2),
                         "Completion Time": extract_completion_time(r.attchmntText),
                         "Sector": eq["sector"],
                         "Impact Score": round(impact, 1),
                         "Order Date": r.Date.date(),
-                        "PDF": r.attchmntFile
+                        "PDF Link": make_clickable(r.attchmntFile)
                     })
 
             if results:
@@ -176,24 +159,11 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
                     "Impact Score", ascending=False
                 )
 
-                st.subheader("🧠 Order Impact Ranking (Clickable + Sortable)")
-                st.dataframe(
-                    df,
-                    column_config={
-                        "Stock": st.column_config.LinkColumn(
-                            "Stock",
-                            help="Open in TradingView",
-                            display_text="🔗 Chart",
-                            validate="^.*$",
-                            url=lambda s: f"https://www.tradingview.com/symbols/NSE-{s}/"
-                        ),
-                        "PDF": st.column_config.LinkColumn(
-                            "Attachment",
-                            help="Open NSE PDF",
-                            display_text="📄 PDF"
-                        )
-                    },
-                    use_container_width=True
+                st.subheader("🧠 Order Impact Ranking")
+
+                st.markdown(
+                    df.to_html(escape=False, index=False),
+                    unsafe_allow_html=True
                 )
 
                 st.download_button(
