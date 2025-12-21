@@ -7,13 +7,8 @@ from datetime import date, timedelta
 # ============================================================
 # STREAMLIT CONFIG
 # ============================================================
-st.set_page_config(
-    page_title="NSE Order Intelligence",
-    layout="wide",
-    page_icon="📦"
-)
-
-st.title("📦 NSE Big Order Intelligence – Historical")
+st.set_page_config("NSE Order Intelligence", layout="wide", page_icon="📦")
+st.title("📦 NSE Big Order Intelligence – Institutional Dashboard")
 
 # ============================================================
 # SAFE NSE SESSION
@@ -28,10 +23,10 @@ def nse_session():
     return s
 
 # ============================================================
-# FETCH HISTORICAL NSE ORDERS (REAL ARCHIVE)
+# FETCH HISTORICAL CORPORATE ANNOUNCEMENTS
 # ============================================================
 @st.cache_data(ttl=900)
-def fetch_nse_orders_range(start_date, end_date):
+def fetch_orders(start_date, end_date):
     s = nse_session()
     s.get("https://www.nseindia.com", timeout=5)
 
@@ -41,33 +36,30 @@ def fetch_nse_orders_range(start_date, end_date):
         "from_date": start_date.strftime("%d-%m-%Y"),
         "to_date": end_date.strftime("%d-%m-%Y")
     }
-
     r = s.get(url, params=params, timeout=10)
     df = pd.DataFrame(r.json())
-
     df["Date"] = pd.to_datetime(df["sort_date"])
     return df
 
 # ============================================================
-# FETCH NSE EQUITY DATA
+# FETCH EQUITY SNAPSHOT
 # ============================================================
 @st.cache_data(ttl=900)
-def fetch_nse_equity(symbol):
+def fetch_equity(symbol):
     try:
         s = nse_session()
         s.get("https://www.nseindia.com", timeout=5)
 
-        url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
-        r = s.get(url, timeout=5)
+        r = s.get(
+            f"https://www.nseindia.com/api/quote-equity?symbol={symbol}",
+            timeout=5
+        )
         data = r.json()
-
-        price = data.get("priceInfo", {})
-        meta = data.get("metadata", {})
-
         return {
-            "marketCap": meta.get("marketCap"),
-            "volume": price.get("totalTradedVolume", 0),
-            "sector": meta.get("industry", "NA")
+            "mcap": data.get("metadata", {}).get("marketCap"),
+            "sector": data.get("metadata", {}).get("industry", "NA"),
+            "prevClose": data.get("priceInfo", {}).get("previousClose"),
+            "lastPrice": data.get("priceInfo", {}).get("lastPrice"),
         }
     except:
         return None
@@ -79,95 +71,124 @@ def extract_order_value(text):
     m = re.search(r"(₹|Rs\.?)\s?([\d,]+)\s?crore", text, re.I)
     return float(m.group(2).replace(",", "")) if m else None
 
-def extract_completion_time(text):
+def extract_duration(text):
     m = re.search(r"(within|over|in)\s(\d+)\s(year|years|month|months)", text, re.I)
     return f"{m.group(2)} {m.group(3)}" if m else "Not Specified"
 
-# ============================================================
-# UI – DATE SELECTION
-# ============================================================
-st.info("⚠ NSE APIs are called **only after clicking the button**")
+def classify_price_impact(text):
+    text = text.lower()
+    if any(k in text for k in ["order", "contract", "award", "project", "acquisition", "capacity", "expansion"]):
+        return "🔥 High"
+    if any(k in text for k in ["agreement", "strategic", "subsidiary", "moa"]):
+        return "⚠ Medium"
+    return "ℹ Low"
 
+def make_clickable(url):
+    return f'<a href="{url}" target="_blank">📄 PDF</a>'
+
+# ============================================================
+# UI CONTROLS
+# ============================================================
 col1, col2 = st.columns(2)
 end_date = col2.date_input("📅 To Date", date.today())
-start_date = col1.date_input(
-    "📅 From Date",
-    end_date - timedelta(days=30)
+start_date = col1.date_input("📅 From Date", end_date - timedelta(days=30))
+
+desc_filter = st.multiselect(
+    "🔍 Description Filter",
+    ["order", "contract", "award", "project", "loa", "acquisition", "rights", "expansion"],
+    default=["order", "contract", "award", "project", "loa"]
 )
 
-if st.button("🚀 Fetch & Analyze NSE Orders"):
-    with st.spinner("Fetching historical NSE announcements…"):
-        try:
-            orders = fetch_nse_orders_range(start_date, end_date)
+# ============================================================
+# MAIN ACTION
+# ============================================================
+if st.button("🚀 Fetch & Analyze"):
+    with st.spinner("Fetching NSE historical data…"):
+        orders = fetch_orders(start_date, end_date)
 
-            # Filter only order-related announcements
-            orders = orders[
-                orders["attchmntText"].str.contains(
-                    "order|contract|award|project|agreement|loa",
-                    case=False, na=False
-                )
-            ]
+        pattern = "|".join(desc_filter)
+        orders = orders[
+            orders["attchmntText"].str.contains(pattern, case=False, na=False)
+        ]
 
-            st.subheader("🔁 NSE Order Announcements")
-            st.dataframe(
-                orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]],
-                use_container_width=True
-            )
+        results = []
 
-            results = []
+        for sym in orders["symbol"].unique():
+            eq = fetch_equity(sym)
+            if not eq or not eq["mcap"]:
+                continue
 
-            for sym in orders["symbol"].unique():
-                eq = fetch_nse_equity(sym)
-                if not eq or not eq["marketCap"]:
+            mcap_cr = eq["mcap"] / 1e7
+
+            for _, r in orders[orders.symbol == sym].iterrows():
+                val = extract_order_value(r.attchmntText)
+                if not val:
                     continue
 
-                market_cap_cr = eq["marketCap"] / 1e7
+                impact_score = min((val / mcap_cr) * 5, 100)
 
-                for _, r in orders[orders.symbol == sym].iterrows():
-                    order_val = extract_order_value(r.attchmntText)
-                    if not order_val:
-                        continue
+                next_day_move = None
+                if eq["prevClose"] and eq["lastPrice"]:
+                    next_day_move = round(
+                        ((eq["lastPrice"] - eq["prevClose"]) / eq["prevClose"]) * 100, 2
+                    )
 
-                    impact = min((order_val / market_cap_cr) * 5, 100)
+                results.append({
+                    "Stock": sym,
+                    "Company": r.sm_name,
+                    "Sector": eq["sector"],
+                    "Order ₹Cr": round(val, 1),
+                    "Market Cap ₹Cr": round(mcap_cr, 0),
+                    "Impact Score": round(impact_score, 1),
+                    "Next Day % Move": next_day_move,
+                    "Completion": extract_duration(r.attchmntText),
+                    "Price Impact": classify_price_impact(r.attchmntText),
+                    "Order Date": r.Date.date(),
+                    "Attachment": make_clickable(r.attchmntFile)
+                })
 
-                    results.append({
-                        "Stock": sym,
-                        "Company": r.sm_name,
-                        "Order ₹Cr": round(order_val, 1),
-                        "Market Cap ₹Cr": round(market_cap_cr, 0),
-                        "Order % MCap": round((order_val / market_cap_cr) * 100, 2),
-                        "Completion Time": extract_completion_time(r.attchmntText),
-                        "Sector": eq["sector"],
-                        "Impact Score": round(impact, 1),
-                        "Order Date": r.Date.date(),
-                        "PDF Link": r.attchmntFile
-                    })
+        df = pd.DataFrame(results)
 
-            if results:
-                df = pd.DataFrame(results).sort_values(
-                    "Impact Score", ascending=False
-                )
+        # ====================================================
+        # MAIN TABLE
+        # ====================================================
+        st.subheader("🧠 Order Intelligence Table")
+        st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
-                st.subheader("🧠 Order Impact Ranking")
-                st.dataframe(
-                    df.style.background_gradient(
-                        subset=["Impact Score"],
-                        cmap="RdYlGn"
-                    ),
-                    use_container_width=True
-                )
+        # ====================================================
+        # REPEAT ORDER DETECTION
+        # ====================================================
+        st.subheader("🧮 Repeat Order Detection (Smart Money)")
+        repeat_df = df.groupby("Stock").agg(
+            Orders=("Order ₹Cr", "count"),
+            Total_Order_Value=("Order ₹Cr", "sum")
+        ).sort_values("Orders", ascending=False)
 
-                st.download_button(
-                    "⬇ Download Order Book (CSV)",
-                    df.to_csv(index=False),
-                    file_name="nse_order_intelligence.csv"
-                )
-            else:
-                st.warning("No qualifying big orders found in selected date range.")
+        st.dataframe(repeat_df, use_container_width=True)
 
-        except Exception as e:
-            st.error("NSE blocked or rate-limited the request. Retry later.")
-            st.code(str(e))
+        # ====================================================
+        # SECTOR HEATMAP
+        # ====================================================
+        st.subheader("🏭 Sector Order Heatmap")
+        sector_df = df.groupby("Sector")["Order ₹Cr"].sum().reset_index()
+        st.bar_chart(sector_df.set_index("Sector"))
+
+        # ====================================================
+        # IMPACT vs NEXT DAY MOVE
+        # ====================================================
+        st.subheader("📈 Impact Score vs Next-Day Price Move")
+        st.scatter_chart(
+            df[["Impact Score", "Next Day % Move"]].dropna()
+        )
+
+        # ====================================================
+        # DOWNLOAD
+        # ====================================================
+        st.download_button(
+            "⬇ Download CSV",
+            df.to_csv(index=False),
+            file_name="nse_order_intelligence_full.csv"
+        )
 
 # ============================================================
 # FOOTER
@@ -175,5 +196,5 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
 st.markdown("---")
 st.markdown("""
 **Designed by – Gaurav Singh Yadav**  
-📦 NSE Order Flow | 🧠 Institutional Intelligence  
+📦 NSE Order Flow | 🧠 Smart Money Intelligence  
 """)
