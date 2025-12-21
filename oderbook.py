@@ -4,6 +4,18 @@ import pandas as pd
 import re
 from datetime import date, timedelta
 
+@st.cache_resource
+def get_global_nse_session():
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+        "Referer": "https://www.nseindia.com/"
+    })
+    s.get("https://www.nseindia.com", timeout=5)
+    return s
+
+
 # ============================================================
 # STREAMLIT CONFIG
 # ============================================================
