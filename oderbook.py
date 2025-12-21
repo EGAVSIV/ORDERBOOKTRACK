@@ -30,24 +30,36 @@ HEADERS = {
 }
 
 @st.cache_data(ttl=300)
-def fetch_nse_orders():
-    session = requests.Session()
-    session.get("https://www.nseindia.com", headers=HEADERS)
+def fetch_nse_orders_safe():
+    try:
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json"
+        })
 
-    url = "https://www.nseindia.com/api/corporate-announcements?index=equities"
-    r = session.get(url, headers=HEADERS)
-    data = r.json()
+        session.get(
+            "https://www.nseindia.com",
+            timeout=5
+        )
 
-    df = pd.DataFrame(data)
+        url = "https://www.nseindia.com/api/corporate-announcements?index=equities"
+        r = session.get(url, timeout=5)
 
-    df = df[df["desc"].str.contains(
-        "order|contract|award|project|loa",
-        case=False,
-        na=False
-    )]
+        df = pd.DataFrame(r.json())
 
-    df["Date"] = pd.to_datetime(df["an_dt"]).dt.date
-    return df[["symbol", "desc", "Date"]]
+        df = df[df["desc"].str.contains(
+            "order|contract|award|project|loa",
+            case=False,
+            na=False
+        )]
+
+        df["Date"] = pd.to_datetime(df["an_dt"]).dt.date
+        return df[["symbol", "desc", "Date"]]
+
+    except Exception as e:
+        return pd.DataFrame(columns=["symbol", "desc", "Date"])
+
 
 # ============================================================
 # ORDER VALUE EXTRACTION
