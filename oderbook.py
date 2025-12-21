@@ -7,10 +7,7 @@ import requests
 import pandas as pd
 import re
 import numpy as np
-
 import pandas_ta as ta
-
-from datetime import datetime
 
 # ============================================================
 # STREAMLIT CONFIG
@@ -24,13 +21,8 @@ st.set_page_config(
 st.title("📦 NSE Big Order Intelligence Dashboard")
 
 # ============================================================
-# NSE ANNOUNCEMENT FETCHER
+# NSE ANNOUNCEMENT FETCHER (SAFE)
 # ============================================================
-HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "application/json"
-}
-
 @st.cache_data(ttl=300)
 def fetch_nse_orders_safe():
     try:
@@ -40,10 +32,7 @@ def fetch_nse_orders_safe():
             "Accept": "application/json"
         })
 
-        session.get(
-            "https://www.nseindia.com",
-            timeout=5
-        )
+        session.get("https://www.nseindia.com", timeout=5)
 
         url = "https://www.nseindia.com/api/corporate-announcements?index=equities"
         r = session.get(url, timeout=5)
@@ -59,9 +48,8 @@ def fetch_nse_orders_safe():
         df["Date"] = pd.to_datetime(df["an_dt"]).dt.date
         return df[["symbol", "desc", "Date"]]
 
-    except Exception as e:
+    except Exception:
         return pd.DataFrame(columns=["symbol", "desc", "Date"])
-
 
 # ============================================================
 # ORDER VALUE EXTRACTION
@@ -78,7 +66,7 @@ def extract_order_value(text):
     return None
 
 # ============================================================
-# MOCK FINANCIAL DATA (REPLACE WITH LIVE API LATER)
+# MOCK FINANCIAL DATA
 # ============================================================
 FIN_DATA = {
     "LT": {"mcap": 450000, "revenue": 210000, "roce": 18, "de": 0.9},
@@ -87,23 +75,22 @@ FIN_DATA = {
 }
 
 # ============================================================
-# PRICE DATA (DEMO – REPLACE WITH NSE/TV DATA)
+# MOCK PRICE DATA
 # ============================================================
 def get_mock_price_data():
     np.random.seed(0)
-    df = pd.DataFrame({
+    return pd.DataFrame({
         "Close": np.cumsum(np.random.randn(120)) + 100,
         "High": np.cumsum(np.random.randn(120)) + 102,
         "Volume": np.random.randint(1e5, 5e5, 120)
     })
-    return df
 
 # ============================================================
-# BREAKOUT + VOLUME LOGIC
+# BREAKOUT + VOLUME LOGIC (NO TALIB)
 # ============================================================
 def check_breakout(df):
-    df["EMA20"] = talib.EMA(df["Close"], 20)
-    df["EMA50"] = talib.EMA(df["Close"], 50)
+    df["EMA20"] = ta.ema(df["Close"], length=20)
+    df["EMA50"] = ta.ema(df["Close"], length=50)
     df["HH20"] = df["High"].rolling(20).max()
     df["VolAvg"] = df["Volume"].rolling(20).mean()
 
@@ -116,7 +103,7 @@ def check_breakout(df):
     )
 
 # ============================================================
-# IMPACT SCORE ENGINE (0–100)
+# IMPACT SCORE
 # ============================================================
 def impact_score(order, mcap, revenue, roce, breakout):
     score = 0
@@ -127,20 +114,20 @@ def impact_score(order, mcap, revenue, roce, breakout):
     return round(min(score, 100), 1)
 
 # ============================================================
-# FETCH & PROCESS
+# UI – FETCH NSE DATA
 # ============================================================
+orders = pd.DataFrame(columns=["symbol", "desc", "Date"])
+
 st.subheader("🔁 NSE Order Announcements")
 
 if st.button("🔄 Fetch Latest NSE Orders"):
     orders = fetch_nse_orders_safe()
-    st.dataframe(orders, use_container_width=True)
-else:
-    st.info("Click button to fetch NSE announcements")
 
-
-st.subheader("🔁 Live NSE Order Announcements")
 st.dataframe(orders, use_container_width=True)
 
+# ============================================================
+# PROCESS & RANK
+# ============================================================
 results = []
 
 for _, r in orders.iterrows():
@@ -165,7 +152,6 @@ for _, r in orders.iterrows():
     results.append({
         "Stock": sym,
         "Order ₹Cr": order_val,
-        "MCap ₹Cr": fin["mcap"],
         "Order % MCap": round(order_val / fin["mcap"] * 100, 2),
         "ROCE %": fin["roce"],
         "Debt/Equity": fin["de"],
@@ -173,23 +159,10 @@ for _, r in orders.iterrows():
         "Impact Score": score
     })
 
-# ============================================================
-# RANKING DASHBOARD
-# ============================================================
 if results:
-    df_rank = pd.DataFrame(results)
-    df_rank = df_rank.sort_values("Impact Score", ascending=False)
-
-    st.subheader("🧠 Order Impact Ranking (Best → Worst)")
+    df_rank = pd.DataFrame(results).sort_values("Impact Score", ascending=False)
+    st.subheader("🧠 Order Impact Ranking")
     st.dataframe(df_rank, use_container_width=True)
-
-    top = df_rank.iloc[0]
-
-    st.success(
-        f"📈 TOP CANDIDATE: {top.Stock} | "
-        f"Impact Score: {top['Impact Score']} | "
-        f"Order % MCap: {top['Order % MCap']}%"
-    )
 else:
     st.warning("No high-quality order announcements detected yet.")
 
