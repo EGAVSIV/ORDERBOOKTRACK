@@ -8,6 +8,8 @@ import pandas as pd
 import re
 import numpy as np
 import talib
+import pandas_ta as ta
+
 from datetime import datetime
 
 # ============================================================
@@ -127,7 +129,14 @@ def impact_score(order, mcap, revenue, roce, breakout):
 # ============================================================
 # FETCH & PROCESS
 # ============================================================
-orders = fetch_nse_orders()
+st.subheader("🔁 NSE Order Announcements")
+
+if st.button("🔄 Fetch Latest NSE Orders"):
+    orders = fetch_nse_orders_safe()
+    st.dataframe(orders, use_container_width=True)
+else:
+    st.info("Click button to fetch NSE announcements")
+
 
 st.subheader("🔁 Live NSE Order Announcements")
 st.dataframe(orders, use_container_width=True)
