@@ -1,15 +1,10 @@
-# ============================================================
-# NSE REAL ORDER + MARKET CAP + VOLUME + IMPACT SCORE DASHBOARD
-# ============================================================
-
 import streamlit as st
 import requests
 import pandas as pd
 import re
-from datetime import datetime
 
 # ============================================================
-# STREAMLIT CONFIG
+# CONFIG
 # ============================================================
 st.set_page_config(
     page_title="NSE Order Intelligence",
@@ -17,15 +12,12 @@ st.set_page_config(
     page_icon="📦"
 )
 
-st.title("📦 NSE Big Order Intelligence (REAL NSE DATA)")
+st.title("📦 NSE Big Order Intelligence (Cloud Safe)")
 
-# ============================================================
-# PREDEFINED SYMBOLS (YOU CONTROL)
-# ============================================================
 SYMBOLS = ["LT", "HAL", "RVNL"]
 
 # ============================================================
-# NSE SAFE SESSION
+# SAFE NSE SESSION (CREATED ONLY WHEN CALLED)
 # ============================================================
 def nse_session():
     s = requests.Session()
@@ -34,158 +26,107 @@ def nse_session():
         "Accept": "application/json",
         "Referer": "https://www.nseindia.com/"
     })
-    s.get("https://www.nseindia.com", timeout=5)
     return s
 
 # ============================================================
-# FETCH NSE ORDER ANNOUNCEMENTS
+# FETCH NSE ORDERS (ON-DEMAND ONLY)
 # ============================================================
-@st.cache_data(ttl=300)
 def fetch_nse_orders():
-    try:
-        s = nse_session()
-        url = "https://www.nseindia.com/api/corporate-announcements?index=equities"
-        r = s.get(url, timeout=5)
+    s = nse_session()
+    s.get("https://www.nseindia.com", timeout=5)
 
-        df = pd.DataFrame(r.json())
+    url = "https://www.nseindia.com/api/corporate-announcements?index=equities"
+    r = s.get(url, timeout=5)
 
-        df = df[df["desc"].str.contains(
-            "order|contract|award|project|loa",
-            case=False,
-            na=False
-        )]
+    df = pd.DataFrame(r.json())
 
-        df["Date"] = pd.to_datetime(df["an_dt"]).dt.date
-        return df[["symbol", "desc", "Date"]]
+    df = df[df["desc"].str.contains(
+        "order|contract|award|project|loa",
+        case=False,
+        na=False
+    )]
 
-    except Exception:
-        return pd.DataFrame(columns=["symbol", "desc", "Date"])
+    df["Date"] = pd.to_datetime(df["an_dt"]).dt.date
+    return df[["symbol", "desc", "Date"]]
 
 # ============================================================
-# EXTRACT ORDER VALUE ₹
+# FETCH NSE EQUITY (ON-DEMAND ONLY)
+# ============================================================
+def fetch_nse_equity(symbol):
+    s = nse_session()
+    s.get("https://www.nseindia.com", timeout=5)
+
+    url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
+    r = s.get(url, timeout=5)
+    data = r.json()
+
+    price = data["priceInfo"]
+    meta = data["metadata"]
+
+    return {
+        "symbol": symbol,
+        "marketCap": meta.get("marketCap"),
+        "volume": price.get("totalTradedVolume"),
+        "sector": meta.get("industry", "NA")
+    }
+
+# ============================================================
+# EXTRACT ORDER VALUE
 # ============================================================
 def extract_order_value(text):
-    patterns = [
-        r"₹\s?([\d,]+)\s?crore",
-        r"Rs\.?\s?([\d,]+)\s?crore"
-    ]
-    for p in patterns:
-        m = re.search(p, text, re.IGNORECASE)
-        if m:
-            return float(m.group(1).replace(",", ""))
-    return None
+    m = re.search(r"(₹|Rs\.?)\s?([\d,]+)\s?crore", text, re.I)
+    return float(m.group(2).replace(",", "")) if m else None
 
 # ============================================================
-# FETCH REAL NSE EQUITY DATA
+# UI – NOTHING BLOCKING ABOVE THIS LINE
 # ============================================================
-@st.cache_data(ttl=300)
-def fetch_nse_equity(symbol):
-    try:
-        s = nse_session()
-        url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
-        r = s.get(url, timeout=5)
-        data = r.json()
 
-        price = data["priceInfo"]
-        meta = data["metadata"]
+st.info("⚠ NSE APIs are called **only after clicking the button**")
 
-        return {
-            "symbol": symbol,
-            "lastPrice": price["lastPrice"],
-            "volume": price["totalTradedVolume"],
-            "marketCap": meta.get("marketCap", None),
-            "sector": meta.get("industry", "NA")
-        }
+if st.button("🚀 Fetch NSE Orders & Rank Impact"):
+    with st.spinner("Fetching data from NSE…"):
 
-    except Exception:
-        return None
+        try:
+            orders = fetch_nse_orders()
+            st.subheader("🔁 NSE Order Announcements")
+            st.dataframe(orders, use_container_width=True)
 
-# ============================================================
-# VOLUME EXPANSION (REAL NSE)
-# ============================================================
-def volume_expansion(today_vol):
-    # NSE does not provide avg volume publicly
-    # Proxy: strong spike if volume > 1.8x normal day assumption
-    return today_vol > 1_500_000
+            results = []
 
-# ============================================================
-# IMPACT SCORE (NSE ONLY)
-# ============================================================
-def impact_score(order_val, market_cap, vol_spike):
-    score = 0
+            for sym in SYMBOLS:
+                eq = fetch_nse_equity(sym)
+                if not eq or not eq["marketCap"]:
+                    continue
 
-    if market_cap:
-        score += min((order_val / market_cap) * 100 * 5, 50)
+                for _, r in orders[orders.symbol == sym].iterrows():
+                    order_val = extract_order_value(r.desc)
+                    if not order_val:
+                        continue
 
-    score += 30 if vol_spike else 0
-    score += 20  # order existence bonus
+                    impact = min((order_val / (eq["marketCap"] / 1e7)) * 5, 100)
 
-    return round(min(score, 100), 1)
+                    results.append({
+                        "Stock": sym,
+                        "Order ₹Cr": order_val,
+                        "Market Cap ₹Cr": round(eq["marketCap"] / 1e7, 0),
+                        "Order % MCap": round((order_val / (eq["marketCap"] / 1e7)) * 100, 2),
+                        "Sector": eq["sector"],
+                        "Impact Score": round(impact, 1)
+                    })
 
-# ============================================================
-# UI – FETCH BUTTON
-# ============================================================
-st.subheader("🔁 NSE Order Announcements")
+            if results:
+                df = pd.DataFrame(results).sort_values(
+                    "Impact Score", ascending=False
+                )
 
-orders = pd.DataFrame(columns=["symbol", "desc", "Date"])
+                st.subheader("🧠 Order Impact Ranking")
+                st.dataframe(df, use_container_width=True)
+            else:
+                st.warning("No matching NSE orders for predefined symbols.")
 
-if st.button("🔄 Fetch Latest NSE Orders"):
-    orders = fetch_nse_orders()
-
-st.dataframe(orders, use_container_width=True)
-
-# ============================================================
-# PROCESS & RANK
-# ============================================================
-results = []
-
-for sym in SYMBOLS:
-    eq = fetch_nse_equity(sym)
-    if not eq or not eq["marketCap"]:
-        continue
-
-    vol_spike = volume_expansion(eq["volume"])
-
-    for _, r in orders[orders.symbol == sym].iterrows():
-        order_val = extract_order_value(r.desc)
-        if not order_val:
-            continue
-
-        score = impact_score(
-            order_val,
-            eq["marketCap"],
-            vol_spike
-        )
-
-        results.append({
-            "Stock": sym,
-            "Order ₹Cr": order_val,
-            "Market Cap ₹Cr": round(eq["marketCap"] / 1e7, 0),
-            "Order % MCap": round((order_val / (eq["marketCap"] / 1e7)) * 100, 2),
-            "Volume Spike": "YES" if vol_spike else "NO",
-            "Sector": eq["sector"],
-            "Impact Score": score
-        })
-
-# ============================================================
-# DASHBOARD OUTPUT
-# ============================================================
-if results:
-    df_rank = pd.DataFrame(results).sort_values(
-        "Impact Score", ascending=False
-    )
-
-    st.subheader("🧠 Order Impact Ranking (REAL NSE DATA)")
-    st.dataframe(df_rank, use_container_width=True)
-
-    top = df_rank.iloc[0]
-    st.success(
-        f"📈 TOP STOCK: {top.Stock} | "
-        f"Impact Score: {top['Impact Score']} | "
-        f"Order % MCap: {top['Order % MCap']}%"
-    )
-else:
-    st.warning("No NSE orders matched predefined symbols.")
+        except Exception as e:
+            st.error("NSE blocked the request. Please retry later.")
+            st.code(str(e))
 
 # ============================================================
 # FOOTER
@@ -193,5 +134,5 @@ else:
 st.markdown("---")
 st.markdown("""
 **Designed by – Gaurav Singh Yadav**  
-📦 Order Flow | 📊 NSE Intelligence | 🧠 Quant Analysis  
+📦 NSE Order Flow | 🧠 Institutional Tracking  
 """)
