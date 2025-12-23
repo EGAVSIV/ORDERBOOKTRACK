@@ -53,7 +53,7 @@ with c2:
     auto_refresh = st.toggle("⏱ Auto Refresh (45 min)", value=False)
 
 with c3:
-    st.caption("Manual refresh forces fresh NOAA weather + NG demand recalculation")
+    st.caption("Manual refresh forces fresh to Get Recent Communication to NSE from Companies")
 # =====================================================
 # AUTO REFRESH TIMER (SAFE)
 # =====================================================
