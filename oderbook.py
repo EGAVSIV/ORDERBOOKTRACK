@@ -204,11 +204,14 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
             st.error("NSE blocked or rate-limited the request. Retry later.")
             st.code(str(e))
 
-# ============================================================
-# FOOTER
-# ============================================================
-st.markdown("---")
+
+
 st.markdown("""
-**Designed by – Gaurav Singh Yadav**  
+---
+**Designed by:-  
+Gaurav Singh Yadav**   
+🩷💛🩵💙🩶💜🤍🤎💖  Built With Love 🫶  
 📦 NSE Order Flow | 🧠 Institutional Intelligence  
+📱 +91-8003994518 〽️   
+📧 yadav.gauravsingh@gmail.com ™️
 """)
