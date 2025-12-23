@@ -163,6 +163,14 @@ start_date = col1.date_input(
     end_date - timedelta(days=1)
 )
 
+st.markdown("### ▶ Run Scan")
+
+if st.button("🚀 Fetch & Analyze NSE Orders"):
+    st.cache_data.clear()
+    st.session_state.run_nse_scan = True
+    st.rerun()
+
+
 if st.session_state.run_nse_scan:
     with st.spinner("Fetching historical NSE announcements…"):
         try:
