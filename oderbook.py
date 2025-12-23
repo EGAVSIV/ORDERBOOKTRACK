@@ -151,7 +151,7 @@ col1, col2 = st.columns(2)
 end_date = col2.date_input("📅 To Date", date.today())
 start_date = col1.date_input(
     "📅 From Date",
-    end_date - timedelta(days=30)
+    end_date - timedelta(days=1)
 )
 
 if st.button("🚀 Fetch & Analyze NSE Orders"):
