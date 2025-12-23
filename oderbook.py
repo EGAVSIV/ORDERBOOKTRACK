@@ -164,6 +164,84 @@ start_date = col1.date_input(
 )
 
 if st.session_state.run_nse_scan:
+    with st.spinner("Fetching historical NSE announcements…"):
+        try:
+            # reset flag immediately (prevents loop)
+            st.session_state.run_nse_scan = False
+
+            orders = fetch_nse_orders_range(start_date, end_date)
+
+            orders = orders[
+                orders["attchmntText"].str.contains(
+                    "order|contract|award|project|agreement|loa",
+                    case=False, na=False
+                )
+            ]
+
+            st.subheader("🔁 NSE Order Announcements")
+
+            # Make attachment clickable in raw table
+            orders_view = orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]].copy()
+            orders_view["attchmntFile"] = orders_view["attchmntFile"].apply(make_clickable)
+
+            st.markdown(
+                orders_view.to_html(escape=False, index=False),
+                unsafe_allow_html=True
+            )
+
+            results = []
+
+            for sym in orders["symbol"].unique():
+                eq = fetch_nse_equity(sym)
+                if not eq or not eq["marketCap"]:
+                    continue
+
+                market_cap_cr = eq["marketCap"] / 1e7
+
+                for _, r in orders[orders.symbol == sym].iterrows():
+                    order_val = extract_order_value(r.attchmntText)
+                    if not order_val:
+                        continue
+
+                    impact = min((order_val / market_cap_cr) * 5, 100)
+
+                    results.append({
+                        "Stock": sym,
+                        "Company": r.sm_name,
+                        "Order ₹Cr": round(order_val, 1),
+                        "Market Cap ₹Cr": round(market_cap_cr, 0),
+                        "Order % MCap": round((order_val / market_cap_cr) * 100, 2),
+                        "Completion Time": extract_completion_time(r.attchmntText),
+                        "Sector": eq["sector"],
+                        "Impact Score": round(impact, 1),
+                        "Order Date": r.Date.date(),
+                        "PDF Link": make_clickable(r.attchmntFile)
+                    })
+
+            if results:
+                df = pd.DataFrame(results).sort_values(
+                    "Impact Score", ascending=False
+                )
+
+                st.subheader("🧠 Order Impact Ranking")
+
+                st.markdown(
+                    df.to_html(escape=False, index=False),
+                    unsafe_allow_html=True
+                )
+
+                st.download_button(
+                    "⬇ Download Order Book (CSV)",
+                    df.to_csv(index=False),
+                    file_name="nse_order_intelligence.csv"
+                )
+            else:
+                st.warning("No qualifying big orders found in selected date range.")
+
+        except Exception as e:
+            st.error("NSE blocked or rate-limited the request. Retry later.")
+            st.code(str(e))
+
 
 
 
