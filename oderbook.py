@@ -30,6 +30,13 @@ if not st.session_state.authenticated:
 
     st.stop()
 
+# ============================================================
+# NSE SCAN TRIGGER FLAG (MUST BE AFTER LOGIN)
+# ============================================================
+if "run_nse_scan" not in st.session_state:
+    st.session_state.run_nse_scan = False
+
+
 
 # ============================================================
 # STREAMLIT CONFIG
@@ -47,6 +54,7 @@ c1, c2, c3 = st.columns([1.2, 1.8, 6])
 with c1:
     if st.button("🔄 Refresh Now"):
         st.cache_data.clear()
+        st.session_state.run_nse_scan = True
         st.rerun()
 
 with c2:
@@ -64,6 +72,7 @@ if auto_refresh:
     if now - last > 45 * 60:  # 1 minute
         st.session_state["last_refresh"] = now
         st.cache_data.clear()
+        st.session_state.run_nse_scan = True
         st.rerun()
 
 st.title("📦 NSE Big Order Intelligence – Historical")
@@ -154,20 +163,24 @@ start_date = col1.date_input(
     end_date - timedelta(days=1)
 )
 
-if st.button("🚀 Fetch & Analyze NSE Orders"):
+if st.session_state.run_nse_scan:
     with st.spinner("Fetching historical NSE announcements…"):
-        try:
-            orders = fetch_nse_orders_range(start_date, end_date)
+        # reset flag immediately (prevents loop)
+        st.session_state.run_nse_scan = False
 
-            # Filter only order-related announcements
-            orders = orders[
-                orders["attchmntText"].str.contains(
-                    "order|contract|award|project|agreement|loa",
-                    case=False, na=False
-                )
-            ]
+        orders = fetch_nse_orders_range(start_date, end_date)
 
-            st.subheader("🔁 NSE Order Announcements")
+        orders = orders[
+            orders["attchmntText"].str.contains(
+                "order|contract|award|project|agreement|loa",
+                case=False, na=False
+            )
+        ]
+
+        st.subheader("🔁 NSE Order Announcements")
+        ...
+        # ⬅️ keep ALL your existing analysis code here
+
 
             # Make attachment clickable in raw table
             orders_view = orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]].copy()
