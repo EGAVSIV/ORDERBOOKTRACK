@@ -178,7 +178,6 @@ if st.session_state.run_nse_scan:
         ]
 
         st.subheader("🔁 NSE Order Announcements")
-        ...
         # ⬅️ keep ALL your existing analysis code here
 
 
