@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 import re
 from datetime import date, timedelta
+import time
 
 import hashlib
 
@@ -38,6 +39,32 @@ st.set_page_config(
     layout="wide",
     page_icon="📦"
 )
+
+# 🔄 MANUAL + AUTO REFRESH (NO EXTERNAL LIB)
+# =====================================================
+c1, c2, c3 = st.columns([1.2, 1.8, 6])
+
+with c1:
+    if st.button("🔄 Refresh Now"):
+        st.cache_data.clear()
+        st.rerun()
+
+with c2:
+    auto_refresh = st.toggle("⏱ Auto Refresh (45 min)", value=False)
+
+with c3:
+    st.caption("Manual refresh forces fresh NOAA weather + NG demand recalculation")
+# =====================================================
+# AUTO REFRESH TIMER (SAFE)
+# =====================================================
+if auto_refresh:
+    now = time.time()
+    last = st.session_state.get("last_refresh", 0)
+
+    if now - last > 45 * 60:  # 1 minute
+        st.session_state["last_refresh"] = now
+        st.cache_data.clear()
+        st.rerun()
 
 st.title("📦 NSE Big Order Intelligence – Historical")
 
