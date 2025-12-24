@@ -58,7 +58,7 @@ with c1:
         st.rerun()
 
 with c2:
-    auto_refresh = st.toggle("⏱ Auto Refresh (45 min)", value=False)
+    auto_refresh = st.toggle("⏱ Auto Refresh (10 min)", value=False)
 
 with c3:
     st.caption("Manual refresh forces fresh to Get Recent Communication to NSE from Companies")
@@ -69,7 +69,7 @@ if auto_refresh:
     now = time.time()
     last = st.session_state.get("last_refresh", 0)
 
-    if now - last > 45 * 60:  # 1 minute
+    if now - last > 10 * 60:  # 1 minute
         st.session_state["last_refresh"] = now
         st.cache_data.clear()
         st.session_state.run_nse_scan = True
