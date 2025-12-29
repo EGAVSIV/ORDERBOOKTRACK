@@ -124,16 +124,18 @@ if st.button("🚀 Fetch & Analyze NSE Orders"):
     st.cache_data.clear()
     st.session_state.run_nse_scan = True
     st.rerun()
+if "orders_df" not in st.session_state:
+    st.session_state.orders_df = None
 
 # ============================================================
 # MAIN EXECUTION
 # ============================================================
-if st.session_state.run_nse_scan:
+if st.session_state.orders_df is not None:
     with st.spinner("Fetching historical NSE announcements…"):
         try:
             st.session_state.run_nse_scan = False
 
-            orders = fetch_nse_orders_range(start_date, end_date)
+            orders = st.session_state.orders_df
 
             orders = orders[
                 orders["attchmntText"].str.contains(
@@ -141,6 +143,7 @@ if st.session_state.run_nse_scan:
                     case=False, na=False
                 )
             ]
+            st.session_state.orders_df = orders.copy()
 
             # ============================================================
             # FILTERS (CORRECT LOCATION)
