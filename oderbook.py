@@ -30,6 +30,10 @@ if not st.session_state.authenticated:
 
     st.stop()
 
+def screener_link(symbol):
+    return f'<a href="https://www.screener.in/company/{symbol}/consolidated/" target="_blank">📊 Financials</a>'
+
+
 # ============================================================
 # NSE SCAN TRIGGER FLAG (MUST BE AFTER LOGIN)
 # ============================================================
@@ -223,6 +227,7 @@ if st.session_state.run_nse_scan:
                         "Sector": eq["sector"],
                         "Impact Score": round(impact, 1),
                         "Order Date": r.Date.date(),
+                        "Financials": screener_link(sym),
                         "PDF Link": make_clickable(r.attchmntFile)
                     })
 
