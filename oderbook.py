@@ -147,29 +147,39 @@ if st.session_state.run_nse_scan:
             # ============================================================
             st.markdown("### 🔎 Filters")
 
+            # ============================================================
+            # FILTERS: SYMBOL + DESC (SINGLE SELECT DROPDOWN)
+            # ============================================================
+
+            st.markdown("### 🔎 Filters")
+
             col_f1, col_f2 = st.columns(2)
 
+            # ---------- SYMBOL DROPDOWN ----------
             with col_f1:
-                symbol_options = sorted(orders["symbol"].dropna().unique().tolist())
-                selected_symbols = st.multiselect(
-                    "Filter by Symbol",
+                symbol_options = ["All"] + sorted(orders["symbol"].dropna().unique().tolist())
+                selected_symbol = st.selectbox(
+                    "Select Stock",
                     options=symbol_options,
-                    default=symbol_options
+                    index=0
                 )
 
+            # ---------- DESC DROPDOWN ----------
             with col_f2:
-                desc_options = sorted(orders["desc"].dropna().unique().tolist())
-                selected_desc = st.multiselect(
-                    "Filter by Order Type (DESC)",
+                desc_options = ["All"] + sorted(orders["desc"].dropna().unique().tolist())
+                selected_desc = st.selectbox(
+                    "Select Order Type (DESC)",
                     options=desc_options,
-                    default=desc_options
+                    index=0
                 )
 
-            if selected_symbols:
-                orders = orders[orders["symbol"].isin(selected_symbols)]
+            # ---------- APPLY FILTERS ----------
+            if selected_symbol != "All":
+                orders = orders[orders["symbol"] == selected_symbol]
 
-            if selected_desc:
-                orders = orders[orders["desc"].isin(selected_desc)]
+            if selected_desc != "All":
+                orders = orders[orders["desc"] == selected_desc]
+
 
             # ============================================================
             # TABLE 1: RAW ANNOUNCEMENTS
