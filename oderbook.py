@@ -35,6 +35,37 @@ def screener_link(symbol):
 
 
 # ============================================================
+# FILTERS: SYMBOL + DESC
+# ============================================================
+
+col_f1, col_f2 = st.columns(2)
+
+with col_f1:
+    symbol_options = sorted(orders["symbol"].dropna().unique().tolist())
+    selected_symbols = st.multiselect(
+        "🔎 Filter by Symbol",
+        options=symbol_options,
+        default=symbol_options
+    )
+
+with col_f2:
+    desc_options = sorted(orders["desc"].dropna().unique().tolist())
+    selected_desc = st.multiselect(
+        "🔎 Filter by Order Type (DESC)",
+        options=desc_options,
+        default=desc_options
+    )
+
+# Apply filters together
+if selected_symbols:
+    orders = orders[orders["symbol"].isin(selected_symbols)]
+
+if selected_desc:
+    orders = orders[orders["desc"].isin(selected_desc)]
+
+
+
+# ============================================================
 # NSE SCAN TRIGGER FLAG (MUST BE AFTER LOGIN)
 # ============================================================
 if "run_nse_scan" not in st.session_state:
