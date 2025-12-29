@@ -4,9 +4,11 @@ import pandas as pd
 import re
 from datetime import date, timedelta
 import time
-
 import hashlib
 
+# ============================================================
+# LOGIN
+# ============================================================
 def hash_pwd(pwd):
     return hashlib.sha256(pwd.encode()).hexdigest()
 
@@ -27,22 +29,24 @@ if not st.session_state.authenticated:
             st.rerun()
         else:
             st.error("Invalid credentials")
-
     st.stop()
 
+# ============================================================
+# HELPERS
+# ============================================================
 def screener_link(symbol):
     return f'<a href="https://www.screener.in/company/{symbol}/consolidated/" target="_blank">📊 Financials</a>'
 
+def make_clickable(url):
+    return f'<a href="{url}" target="_blank">📄 Open PDF</a>'
 
+def extract_order_value(text):
+    m = re.search(r"(₹|Rs\.?)\s?([\d,]+)\s?crore", text, re.I)
+    return float(m.group(2).replace(",", "")) if m else None
 
-
-# ============================================================
-# NSE SCAN TRIGGER FLAG (MUST BE AFTER LOGIN)
-# ============================================================
-if "run_nse_scan" not in st.session_state:
-    st.session_state.run_nse_scan = False
-
-
+def extract_completion_time(text):
+    m = re.search(r"(within|over|in)\s(\d+)\s(year|years|month|months)", text, re.I)
+    return f"{m.group(2)} {m.group(3)}" if m else "Not Specified"
 
 # ============================================================
 # STREAMLIT CONFIG
@@ -53,38 +57,10 @@ st.set_page_config(
     page_icon="📦"
 )
 
-# 🔄 MANUAL + AUTO REFRESH (NO EXTERNAL LIB)
-# =====================================================
-c1, c2, c3 = st.columns([1.2, 1.8, 6])
-
-with c1:
-    if st.button("🔄 Refresh Now"):
-        st.cache_data.clear()
-        st.session_state.run_nse_scan = True
-        st.rerun()
-
-with c2:
-    auto_refresh = st.toggle("⏱ Auto Refresh (10 min)", value=False)
-
-with c3:
-    st.caption("Manual refresh forces fresh to Get Recent Communication to NSE from Companies")
-# =====================================================
-# AUTO REFRESH TIMER (SAFE)
-# =====================================================
-if auto_refresh:
-    now = time.time()
-    last = st.session_state.get("last_refresh", 0)
-
-    if now - last > 10 * 60:  # 1 minute
-        st.session_state["last_refresh"] = now
-        st.cache_data.clear()
-        st.session_state.run_nse_scan = True
-        st.rerun()
-
 st.title("📦 NSE Big Order Intelligence – Historical")
 
 # ============================================================
-# SAFE NSE SESSION
+# NSE SESSION
 # ============================================================
 def nse_session():
     s = requests.Session()
@@ -96,7 +72,7 @@ def nse_session():
     return s
 
 # ============================================================
-# FETCH HISTORICAL NSE ORDERS (REAL ARCHIVE)
+# FETCH FUNCTIONS
 # ============================================================
 @st.cache_data(ttl=900)
 def fetch_nse_orders_range(start_date, end_date):
@@ -112,13 +88,9 @@ def fetch_nse_orders_range(start_date, end_date):
 
     r = s.get(url, params=params, timeout=10)
     df = pd.DataFrame(r.json())
-
     df["Date"] = pd.to_datetime(df["sort_date"])
     return df
 
-# ============================================================
-# FETCH NSE EQUITY DATA
-# ============================================================
 @st.cache_data(ttl=900)
 def fetch_nse_equity(symbol):
     try:
@@ -129,58 +101,36 @@ def fetch_nse_equity(symbol):
         r = s.get(url, timeout=5)
         data = r.json()
 
-        price = data.get("priceInfo", {})
-        meta = data.get("metadata", {})
-
         return {
-            "marketCap": meta.get("marketCap"),
-            "volume": price.get("totalTradedVolume", 0),
-            "sector": meta.get("industry", "NA")
+            "marketCap": data["metadata"].get("marketCap"),
+            "sector": data["metadata"].get("industry", "NA")
         }
     except:
         return None
 
 # ============================================================
-# TEXT EXTRACTION
-# ============================================================
-def extract_order_value(text):
-    m = re.search(r"(₹|Rs\.?)\s?([\d,]+)\s?crore", text, re.I)
-    return float(m.group(2).replace(",", "")) if m else None
-
-def extract_completion_time(text):
-    m = re.search(r"(within|over|in)\s(\d+)\s(year|years|month|months)", text, re.I)
-    return f"{m.group(2)} {m.group(3)}" if m else "Not Specified"
-
-# ============================================================
-# MAKE PDF LINK CLICKABLE
-# ============================================================
-def make_clickable(url):
-    return f'<a href="{url}" target="_blank">📄 Open PDF</a>'
-
-# ============================================================
-# UI – DATE SELECTION
+# DATE SELECTION
 # ============================================================
 st.info("⚠ NSE APIs are called **only after clicking the button**")
 
-col1, col2 = st.columns(2)
-end_date = col2.date_input("📅 To Date", date.today())
-start_date = col1.date_input(
-    "📅 From Date",
-    end_date - timedelta(days=1)
-)
+c1, c2 = st.columns(2)
+start_date = c1.date_input("📅 From Date", date.today() - timedelta(days=1))
+end_date = c2.date_input("📅 To Date", date.today())
 
-st.markdown("### ▶ Run Scan")
+if "run_nse_scan" not in st.session_state:
+    st.session_state.run_nse_scan = False
 
 if st.button("🚀 Fetch & Analyze NSE Orders"):
     st.cache_data.clear()
     st.session_state.run_nse_scan = True
     st.rerun()
 
-
+# ============================================================
+# MAIN EXECUTION
+# ============================================================
 if st.session_state.run_nse_scan:
     with st.spinner("Fetching historical NSE announcements…"):
         try:
-            # reset flag immediately (prevents loop)
             st.session_state.run_nse_scan = False
 
             orders = fetch_nse_orders_range(start_date, end_date)
@@ -192,11 +142,17 @@ if st.session_state.run_nse_scan:
                 )
             ]
 
+            # ============================================================
+            # FILTERS (CORRECT LOCATION)
+            # ============================================================
+            st.markdown("### 🔎 Filters")
+
             col_f1, col_f2 = st.columns(2)
+
             with col_f1:
                 symbol_options = sorted(orders["symbol"].dropna().unique().tolist())
                 selected_symbols = st.multiselect(
-                    "🔎 Filter by Symbol",
+                    "Filter by Symbol",
                     options=symbol_options,
                     default=symbol_options
                 )
@@ -204,7 +160,7 @@ if st.session_state.run_nse_scan:
             with col_f2:
                 desc_options = sorted(orders["desc"].dropna().unique().tolist())
                 selected_desc = st.multiselect(
-                    "🔎 Filter by Order Type (DESC)",
+                    "Filter by Order Type (DESC)",
                     options=desc_options,
                     default=desc_options
                 )
@@ -215,9 +171,11 @@ if st.session_state.run_nse_scan:
             if selected_desc:
                 orders = orders[orders["desc"].isin(selected_desc)]
 
+            # ============================================================
+            # TABLE 1: RAW ANNOUNCEMENTS
+            # ============================================================
             st.subheader("🔁 NSE Order Announcements")
 
-            # Make attachment clickable in raw table
             orders_view = orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]].copy()
             orders_view["Financials"] = orders_view["symbol"].apply(screener_link)
             orders_view["attchmntFile"] = orders_view["attchmntFile"].apply(make_clickable)
@@ -227,6 +185,9 @@ if st.session_state.run_nse_scan:
                 unsafe_allow_html=True
             )
 
+            # ============================================================
+            # TABLE 2: IMPACT ANALYSIS
+            # ============================================================
             results = []
 
             for sym in orders["symbol"].unique():
@@ -258,16 +219,10 @@ if st.session_state.run_nse_scan:
                     })
 
             if results:
-                df = pd.DataFrame(results).sort_values(
-                    "Impact Score", ascending=False
-                )
+                df = pd.DataFrame(results).sort_values("Impact Score", ascending=False)
 
                 st.subheader("🧠 Order Impact Ranking")
-
-                st.markdown(
-                    df.to_html(escape=False, index=False),
-                    unsafe_allow_html=True
-                )
+                st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
 
                 st.download_button(
                     "⬇ Download Order Book (CSV)",
@@ -275,21 +230,20 @@ if st.session_state.run_nse_scan:
                     file_name="nse_order_intelligence.csv"
                 )
             else:
-                st.warning("No qualifying big orders found in selected date range.")
+                st.warning("No qualifying big orders found.")
 
         except Exception as e:
-            st.error("NSE blocked or rate-limited the request. Retry later.")
+            st.error("NSE blocked or rate-limited the request.")
             st.code(str(e))
 
-
-
-
+# ============================================================
+# FOOTER
+# ============================================================
 st.markdown("""
 ---
 **Designed by:-  
-Gaurav Singh Yadav**   
-🩷💛🩵💙🩶💜🤍🤎💖  Built With Love 🫶  
+Gaurav Singh Yadav**  
 📦 NSE Order Flow | 🧠 Institutional Intelligence  
-📱 +91-8003994518 〽️   
-📧 yadav.gauravsingh@gmail.com ™️
+📱 +91-8003994518  
+📧 yadav.gauravsingh@gmail.com
 """)
