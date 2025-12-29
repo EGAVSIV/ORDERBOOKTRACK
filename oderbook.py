@@ -34,35 +34,6 @@ def screener_link(symbol):
     return f'<a href="https://www.screener.in/company/{symbol}/consolidated/" target="_blank">📊 Financials</a>'
 
 
-# ============================================================
-# FILTERS: SYMBOL + DESC
-# ============================================================
-
-col_f1, col_f2 = st.columns(2)
-
-with col_f1:
-    symbol_options = sorted(orders["symbol"].dropna().unique().tolist())
-    selected_symbols = st.multiselect(
-        "🔎 Filter by Symbol",
-        options=symbol_options,
-        default=symbol_options
-    )
-
-with col_f2:
-    desc_options = sorted(orders["desc"].dropna().unique().tolist())
-    selected_desc = st.multiselect(
-        "🔎 Filter by Order Type (DESC)",
-        options=desc_options,
-        default=desc_options
-    )
-
-# Apply filters together
-if selected_symbols:
-    orders = orders[orders["symbol"].isin(selected_symbols)]
-
-if selected_desc:
-    orders = orders[orders["desc"].isin(selected_desc)]
-
 
 
 # ============================================================
@@ -220,6 +191,29 @@ if st.session_state.run_nse_scan:
                     case=False, na=False
                 )
             ]
+
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                symbol_options = sorted(orders["symbol"].dropna().unique().tolist())
+                selected_symbols = st.multiselect(
+                    "🔎 Filter by Symbol",
+                    options=symbol_options,
+                    default=symbol_options
+                )
+
+            with col_f2:
+                desc_options = sorted(orders["desc"].dropna().unique().tolist())
+                selected_desc = st.multiselect(
+                    "🔎 Filter by Order Type (DESC)",
+                    options=desc_options,
+                    default=desc_options
+                )
+
+            if selected_symbols:
+                orders = orders[orders["symbol"].isin(selected_symbols)]
+
+            if selected_desc:
+                orders = orders[orders["desc"].isin(selected_desc)]
 
             st.subheader("🔁 NSE Order Announcements")
 
