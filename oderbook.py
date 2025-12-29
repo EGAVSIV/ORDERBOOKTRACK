@@ -194,6 +194,7 @@ if st.session_state.run_nse_scan:
 
             # Make attachment clickable in raw table
             orders_view = orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]].copy()
+            orders_view["Financials"] = orders_view["symbol"].apply(screener_link)
             orders_view["attchmntFile"] = orders_view["attchmntFile"].apply(make_clickable)
 
             st.markdown(
