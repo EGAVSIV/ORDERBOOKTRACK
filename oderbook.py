@@ -1,193 +1,293 @@
-# ==========================================================
-# UPSTOX STREAMLIT OPTIONS ALGO – PAPER TRADING VERSION
-# ==========================================================
-
 import streamlit as st
-import pandas as pd
-import numpy as np
 import requests
-import gzip, json
-from datetime import datetime
+import pandas as pd
+import re
+from datetime import date, timedelta
+
+
 import hashlib
 
-# ==========================================================
-# CONFIG
-# ==========================================================
-UPSTOX_BASE = "https://api.upstox.com/v2"
-TOKEN_FILE = "token.txt"
+# ============================================================
+# LOGIN
+# ============================================================
+def hash_pwd(pwd):
+    return hashlib.sha256(pwd.encode()).hexdigest()
 
-st.set_page_config("Upstox Options Algo Trader", layout="wide", page_icon="⚡")
+USERS = st.secrets["users"]
 
-# ==========================================================
-# SESSION STATE
-# ==========================================================
-for k in ["trades", "pnl"]:
-    if k not in st.session_state:
-        st.session_state[k] = []
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
 
-# ==========================================================
-# TOKEN UTILS
-# ==========================================================
-def save_token(token):
-    with open(TOKEN_FILE, "w") as f:
-        f.write(token)
+if not st.session_state.authenticated:
+    st.title("🔐 Login Required")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
 
-def load_token():
-    try:
-        return open(TOKEN_FILE).read().strip()
-    except:
-        return ""
+    if st.button("Login"):
+        if u in USERS and hash_pwd(p) == USERS[u]:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Invalid credentials")
+    st.stop()
 
-def headers(token):
-    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+# ============================================================
+# SESSION STORAGE (CRITICAL)
+# ============================================================
+if "orders_df" not in st.session_state:
+    st.session_state.orders_df = None
 
-# ==========================================================
-# MASTER CONTRACT
-# ==========================================================
-@st.cache_data
-def load_master():
-    with gzip.open("complete.json.gz", "rt", encoding="utf-8") as f:
-        data = json.load(f)
-    return pd.DataFrame(data)
+# ============================================================
+# HELPERS
+# ============================================================
+def screener_link(symbol):
+    return f'<a href="https://www.screener.in/company/{symbol}/consolidated/" target="_blank">📊 Financials</a>'
 
-master_df = load_master()
+def make_clickable(url):
+    return f'<a href="{url}" target="_blank">📄 Open PDF</a>'
 
-# ==========================================================
-# INSTRUMENT HELPERS
-# ==========================================================
-def get_spot_key(symbol):
-    if symbol in ["NIFTY","BANKNIFTY","FINNIFTY"]:
-        return master_df[
-            (master_df.segment=="NSE_INDEX") &
-            (master_df.symbol.str.contains(symbol.replace("NIFTY","Nifty"), case=False))
-        ].instrument_key.iloc[0]
+def extract_order_value(text):
+    m = re.search(r"(₹|Rs\.?)\s?([\d,]+)\s?crore", text, re.I)
+    return float(m.group(2).replace(",", "")) if m else None
 
-    return master_df[
-        (master_df.segment=="NSE_EQ") &
-        (master_df.symbol==symbol)
-    ].instrument_key.iloc[0]
+def extract_completion_time(text):
+    m = re.search(r"(within|over|in)\s(\d+)\s(year|years|month|months)", text, re.I)
+    return f"{m.group(2)} {m.group(3)}" if m else "Not Specified"
 
-def get_atm_option(symbol, spot_price, side):
-    df = master_df[
-        (master_df.segment=="NSE_FO") &
-        (master_df.symbol==symbol) &
-        (master_df.option_type==side)
-    ].copy()
-
-    df["diff"] = abs(df["strike"] - spot_price)
-    return df.sort_values("diff").iloc[0]
-
-# ==========================================================
-# MARKET DATA
-# ==========================================================
-def fetch_candles(token, instrument_key, interval="1minute", count=100):
-    url = f"{UPSTOX_BASE}/historical-candle/intraday/{instrument_key}/{interval}"
-    r = requests.get(url, headers=headers(token))
-    candles = r.json().get("data",{}).get("candles",[])
-    if not candles:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(candles, columns=["time","open","high","low","close","volume"])
-    df["time"] = pd.to_datetime(df["time"])
-    return df.tail(count)
-
-# ==========================================================
-# INDICATORS
-# ==========================================================
-def ema(s,p): return s.ewm(span=p,adjust=False).mean()
-
-def bollinger(df):
-    m = df.close.rolling(20).mean()
-    s = df.close.rolling(20).std()
-    df["bb_upper"] = m + 2*s
-    df["bb_lower"] = m - 2*s
-    return df
-
-# ==========================================================
-# ALGO ENGINE
-# ==========================================================
-def run_algo(token, symbol, htf_tf, ltf_tf):
-    spot_key = get_spot_key(symbol)
-
-    htf = fetch_candles(token, spot_key, htf_tf)
-    ltf = fetch_candles(token, spot_key, ltf_tf)
-
-    if htf.empty or ltf.empty or len(ltf)<50:
-        return None
-
-    htf["ema20"], htf["ema50"] = ema(htf.close,20), ema(htf.close,50)
-    ltf["ema20"], ltf["ema50"] = ema(ltf.close,20), ema(ltf.close,50)
-    ltf = bollinger(ltf)
-
-    prev, curr = ltf.iloc[-2], ltf.iloc[-1]
-
-    if htf.ema20.iloc[-1] > htf.ema50.iloc[-1]:
-        if prev.close < prev.ema20 and curr.close > curr.ema20:
-            return "CE"
-
-    if htf.ema20.iloc[-1] < htf.ema50.iloc[-1]:
-        if prev.close > prev.ema20 and curr.close < curr.ema20:
-            return "PE"
-
-    return None
-
-# ==========================================================
-# PAPER TRADING ENGINE
-# ==========================================================
-def paper_trade(symbol, option, entry):
-    trade = {
-        "Time": datetime.now(),
-        "Symbol": symbol,
-        "Option": option.trading_symbol,
-        "Strike": option.strike,
-        "Side": option.option_type,
-        "Entry": entry,
-        "LTP": entry,
-        "PnL": 0
-    }
-    st.session_state.trades.append(trade)
-
-# ==========================================================
-# UI
-# ==========================================================
-st.title("⚡ Upstox Options Algo Trader (Paper Trading)")
-
-token = st.text_input("🔑 Access Token", load_token(), type="password")
-
-if st.button("💾 Save Token"):
-    save_token(token)
-
-symbols = st.multiselect(
-    "Select Symbols",
-    ["NIFTY","BANKNIFTY","FINNIFTY","RELIANCE","INFY","TCS"],
-    ["NIFTY"]
+# ============================================================
+# STREAMLIT CONFIG
+# ============================================================
+st.set_page_config(
+    page_title="NSE Order Intelligence",
+    layout="wide",
+    page_icon="📦"
 )
 
-htf_tf = st.selectbox("Trend TF", ["5minute","15minute"])
-ltf_tf = st.selectbox("Entry TF", ["1minute","3minute"])
 
-# ==========================================================
-# RUN ONCE (STREAMLIT SAFE)
-# ==========================================================
-if st.button("🚀 Run Algo (Paper Trade)"):
-    for sym in symbols:
-        signal = run_algo(token, sym, htf_tf, ltf_tf)
-        if signal:
-            spot_key = get_spot_key(sym)
-            spot = fetch_candles(token, spot_key, "1minute", 1).close.iloc[-1]
-            atm = get_atm_option(sym, spot, signal)
-            paper_trade(sym, atm, atm.last_price if "last_price" in atm else spot)
-            st.success(f"{sym} BUY {signal} @ {atm.strike}")
 
-# ==========================================================
-# DASHBOARD
-# ==========================================================
-st.divider()
-st.header("📊 Paper Trades & PnL")
 
-if st.session_state.trades:
-    df = pd.DataFrame(st.session_state.trades)
-    st.dataframe(df, use_container_width=True)
-    st.metric("Total Trades", len(df))
-else:
-    st.info("No trades yet")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+st.title("📦 NSE Big Order Intelligence – Historical")
+
+# ============================================================
+# NSE SESSION
+# ============================================================
+def nse_session():
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+        "Referer": "https://www.nseindia.com/"
+    })
+    return s
+
+# ============================================================
+# FETCH FUNCTIONS
+# ============================================================
+@st.cache_data(ttl=900)
+def fetch_nse_orders_range(start_date, end_date):
+    s = nse_session()
+    s.get("https://www.nseindia.com", timeout=5)
+
+    url = "https://www.nseindia.com/api/corporate-announcements"
+    params = {
+        "index": "equities",
+        "from_date": start_date.strftime("%d-%m-%Y"),
+        "to_date": end_date.strftime("%d-%m-%Y")
+
+
+
+
+
+
+
+
+    }
+
+
+    r = s.get(url, params=params, timeout=10)
+    df = pd.DataFrame(r.json())
+    df["Date"] = pd.to_datetime(df["sort_date"])
+    return df
+
+@st.cache_data(ttl=900)
+def fetch_nse_equity(symbol):
+    try:
+        s = nse_session()
+        s.get("https://www.nseindia.com", timeout=5)
+
+        url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
+        r = s.get(url, timeout=5)
+        data = r.json()
+
+        return {
+            "marketCap": data["metadata"].get("marketCap"),
+            "sector": data["metadata"].get("industry", "NA")
+        }
+    except:
+        return None
+
+# ============================================================
+# DATE SELECTION
+# ============================================================
+st.info("⚠ NSE APIs are called only when you click Fetch")
+
+c1, c2 = st.columns(2)
+start_date = c1.date_input("📅 From Date", date.today() - timedelta(days=1))
+end_date = c2.date_input("📅 To Date", date.today())
+
+# ============================================================
+# FETCH BUTTON (FETCH + STORE ONCE)
+# ============================================================
+if st.button("🚀 Fetch & Analyze NSE Orders"):
+    st.cache_data.clear()
+
+    orders = fetch_nse_orders_range(start_date, end_date)
+
+    orders = orders[
+        orders["attchmntText"].str.contains(
+            "order|contract|award|project|agreement|loa",
+            case=False, na=False
+        )
+    ]
+
+    st.session_state.orders_df = orders.copy()
+
+# ============================================================
+# MAIN DISPLAY (FILTER SAFE)
+# ============================================================
+if st.session_state.orders_df is not None:
+
+    orders = st.session_state.orders_df.copy()
+
+    # ============================================================
+    # FILTERS
+    # ============================================================
+    st.markdown("### 🔎 Filters")
+
+    col_f1, col_f2 = st.columns(2)
+
+    with col_f1:
+        symbol_options = ["All"] + sorted(orders["symbol"].dropna().unique().tolist())
+        selected_symbol = st.selectbox("Select Stock", symbol_options)
+
+    with col_f2:
+        desc_options = ["All"] + sorted(orders["desc"].dropna().unique().tolist())
+        selected_desc = st.selectbox("Select Order Type (DESC)", desc_options)
+
+    if selected_symbol != "All":
+        orders = orders[orders["symbol"] == selected_symbol]
+
+    if selected_desc != "All":
+        orders = orders[orders["desc"] == selected_desc]
+
+    # ============================================================
+    # TABLE 1: RAW ANNOUNCEMENTS
+    # ============================================================
+    st.subheader("🔁 NSE Order Announcements")
+
+    orders_view = orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]].copy()
+    orders_view["Financials"] = orders_view["symbol"].apply(screener_link)
+    orders_view["attchmntFile"] = orders_view["attchmntFile"].apply(make_clickable)
+
+    st.markdown(
+        orders_view.to_html(escape=False, index=False),
+        unsafe_allow_html=True
+    )
+
+    # ============================================================
+    # TABLE 2: IMPACT ANALYSIS
+    # ============================================================
+    results = []
+
+    for sym in orders["symbol"].unique():
+        eq = fetch_nse_equity(sym)
+        if not eq or not eq["marketCap"]:
+            continue
+
+        market_cap_cr = eq["marketCap"] / 1e7
+
+        for _, r in orders[orders.symbol == sym].iterrows():
+            order_val = extract_order_value(r.attchmntText)
+            if not order_val:
+                continue
+
+            impact = min((order_val / market_cap_cr) * 5, 100)
+
+            results.append({
+                "Stock": sym,
+                "Company": r.sm_name,
+                "Order ₹Cr": round(order_val, 1),
+                "Market Cap ₹Cr": round(market_cap_cr, 0),
+                "Order % MCap": round((order_val / market_cap_cr) * 100, 2),
+                "Completion Time": extract_completion_time(r.attchmntText),
+                "Sector": eq["sector"],
+                "Impact Score": round(impact, 1),
+                "Order Date": r.Date.date(),
+                "Financials": screener_link(sym),
+                "PDF Link": make_clickable(r.attchmntFile)
+            })
+
+    if results:
+        df = pd.DataFrame(results).sort_values("Impact Score", ascending=False)
+        st.subheader("🧠 Order Impact Ranking")
+        st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+        st.download_button(
+            "⬇ Download Order Book (CSV)",
+            df.to_csv(index=False),
+            file_name="nse_order_intelligence.csv"
+        )
+    else:
+        st.warning("No qualifying big orders found.")
+
+# ============================================================
+# FOOTER
+# ============================================================
+st.markdown("""
+---
+**Designed by:-  
+Gaurav Singh Yadav**  
+📦 NSE Order Flow | 🧠 Institutional Intelligence  
+📱 +91-8003994518  
+📧 yadav.gauravsingh@gmail.com
+""")
