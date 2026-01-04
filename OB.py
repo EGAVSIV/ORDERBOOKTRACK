@@ -1,5 +1,5 @@
 # ============================================================
-# NSE ORDER INTELLIGENCE – PDF + SCREENER ENHANCED
+# NSE ORDER INTELLIGENCE – CLOUD SAFE (PDF + SCREENER)
 # ============================================================
 
 import streamlit as st
@@ -7,7 +7,7 @@ import requests
 import pandas as pd
 import re
 import io
-import pdfplumber
+from pypdf import PdfReader
 from bs4 import BeautifulSoup
 from datetime import date, timedelta
 import hashlib
@@ -52,24 +52,24 @@ def make_clickable(url):
     return f'<a href="{url}" target="_blank">📄 Open PDF</a>'
 
 # ============================================================
-# PDF READER
+# READ NSE PDF (CLOUD SAFE)
 # ============================================================
 @st.cache_data(ttl=3600)
 def read_nse_pdf_text(pdf_url):
     try:
         r = requests.get(pdf_url, timeout=20)
-        with pdfplumber.open(io.BytesIO(r.content)) as pdf:
-            text = ""
-            for page in pdf.pages:
-                t = page.extract_text()
-                if t:
-                    text += t + "\n"
+        reader = PdfReader(io.BytesIO(r.content))
+        text = ""
+        for page in reader.pages:
+            t = page.extract_text()
+            if t:
+                text += t + "\n"
         return text
     except:
         return ""
 
 # ============================================================
-# ORDER VALUE EXTRACTION
+# EXTRACT ORDER VALUE (₹ / CR / LAKH)
 # ============================================================
 def extract_total_order_value(text):
     patterns = [
@@ -87,7 +87,7 @@ def extract_total_order_value(text):
     return None
 
 # ============================================================
-# COMPLETION DURATION
+# EXTRACT COMPLETION DURATION
 # ============================================================
 def extract_total_duration(text):
     patterns = [
@@ -103,7 +103,7 @@ def extract_total_duration(text):
     return "Not Specified"
 
 # ============================================================
-# SCREENER MARKET CAP
+# FETCH MARKET CAP FROM SCREENER
 # ============================================================
 @st.cache_data(ttl=3600)
 def fetch_market_cap_screener(symbol):
@@ -205,7 +205,7 @@ if st.session_state.orders_df is not None:
     st.markdown(view.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     # ============================================================
-    # IMPACT TABLE
+    # IMPACT ANALYSIS TABLE
     # ============================================================
     results = []
 
