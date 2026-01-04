@@ -2,4 +2,7 @@ streamlit
 pandas
 requests
 pdfplumber
+io
+BeautifulSoup
+
 
