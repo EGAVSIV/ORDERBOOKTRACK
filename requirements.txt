@@ -1,12 +1,12 @@
-streamlit
-pandas
-requests
-pdfplumber
-
 streamlit==1.35.0
 requests==2.31.0
 pandas>=2.1.0
 beautifulsoup4==4.12.3
 pypdf==4.1.0
+
+#streamlit
+#pandas
+#requests
+#pdfplumber
 
 
