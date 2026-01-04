@@ -1,5 +1,5 @@
 # ============================================================
-# NSE ORDER INTELLIGENCE – CLOUD SAFE (PDF + SCREENER)
+# NSE ORDER INTELLIGENCE – FINAL STABLE VERSION
 # ============================================================
 
 import streamlit as st
@@ -13,17 +13,17 @@ from datetime import date, timedelta
 import hashlib
 
 # ============================================================
-# LOGIN
+# LOGIN (SAFE MODE)
 # ============================================================
 def hash_pwd(pwd):
     return hashlib.sha256(pwd.encode()).hexdigest()
 
-USERS = st.secrets["users"]
+USERS = st.secrets.get("users", {})
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
-if not st.session_state.authenticated:
+if USERS and not st.session_state.authenticated:
     st.title("🔐 Login Required")
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
@@ -35,12 +35,8 @@ if not st.session_state.authenticated:
         else:
             st.error("Invalid credentials")
     st.stop()
-
-# ============================================================
-# SESSION STORAGE
-# ============================================================
-if "orders_df" not in st.session_state:
-    st.session_state.orders_df = None
+else:
+    st.session_state.authenticated = True
 
 # ============================================================
 # HELPERS
@@ -69,7 +65,7 @@ def read_nse_pdf_text(pdf_url):
         return ""
 
 # ============================================================
-# EXTRACT ORDER VALUE (₹ / CR / LAKH)
+# EXTRACT ORDER VALUE
 # ============================================================
 def extract_total_order_value(text):
     patterns = [
@@ -100,7 +96,7 @@ def extract_total_duration(text):
         m = re.search(p, text, re.I)
         if m:
             return f"{m.group(1)} {m.group(2)}"
-    return "Not Specified"
+    return "Not Found"
 
 # ============================================================
 # FETCH MARKET CAP FROM SCREENER
@@ -129,7 +125,7 @@ st.set_page_config(
     page_icon="📦"
 )
 
-st.title("📦 NSE Big Order Intelligence – Historical")
+st.title("📦 NSE Big Order Intelligence")
 
 # ============================================================
 # NSE SESSION
@@ -166,8 +162,6 @@ def fetch_nse_orders_range(start_date, end_date):
 # ============================================================
 # DATE SELECTION
 # ============================================================
-st.info("⚠ NSE APIs are called only when you click Fetch")
-
 c1, c2 = st.columns(2)
 start_date = c1.date_input("📅 From Date", date.today() - timedelta(days=1))
 end_date = c2.date_input("📅 To Date", date.today())
@@ -175,82 +169,41 @@ end_date = c2.date_input("📅 To Date", date.today())
 # ============================================================
 # FETCH BUTTON
 # ============================================================
-if st.button("🚀 Fetch & Analyze NSE Orders"):
+if st.button("🚀 Fetch NSE Announcements"):
     st.cache_data.clear()
-
-    orders = fetch_nse_orders_range(start_date, end_date)
-
-    orders = orders[
-        orders["attchmntText"].str.contains(
-            "order|contract|award|project|agreement|loa",
-            case=False, na=False
-        )
-    ]
-
-    st.session_state.orders_df = orders.copy()
+    st.session_state.orders_df = fetch_nse_orders_range(start_date, end_date)
 
 # ============================================================
 # MAIN DISPLAY
 # ============================================================
-if st.session_state.orders_df is not None:
+if "orders_df" in st.session_state and st.session_state.orders_df is not None:
 
     orders = st.session_state.orders_df.copy()
 
     st.subheader("🔁 NSE Order Announcements")
-
     view = orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]].copy()
     view["Financials"] = view["symbol"].apply(screener_link)
     view["attchmntFile"] = view["attchmntFile"].apply(make_clickable)
-
     st.markdown(view.to_html(escape=False, index=False), unsafe_allow_html=True)
 
-    # ============================================================
-    # IMPACT ANALYSIS TABLE
-    # ============================================================
+    # ========================================================
+    # IMPACT ANALYSIS TABLE (ALWAYS SHOWS)
+    # ========================================================
     results = []
 
     for _, r in orders.iterrows():
         pdf_text = read_nse_pdf_text(r.attchmntFile)
 
-        order_value = extract_total_order_value(pdf_text)
+        order_val = extract_total_order_value(pdf_text)
         duration = extract_total_duration(pdf_text)
         market_cap = fetch_market_cap_screener(r.symbol)
 
-        if not order_value or not market_cap:
-            continue
+        order_pct = round((order_val / market_cap) * 100, 2) if order_val and market_cap else "NA"
 
         results.append({
             "Stock": r.symbol,
             "Company": r.sm_name,
-            "Total Order Value ₹Cr": order_value,
+            "Total Order Value ₹Cr": order_val if order_val else "Not Found",
             "Completion Duration": duration,
-            "Market Cap ₹Cr": market_cap,
-            "Order % of Market Cap": round((order_value / market_cap) * 100, 2),
-            "Order Date": r.Date.date(),
-            "Financials": screener_link(r.symbol),
-            "PDF Link": make_clickable(r.attchmntFile)
-        })
-
-    if results:
-        df = pd.DataFrame(results).sort_values("Order % of Market Cap", ascending=False)
-        st.subheader("🧠 Order Impact Ranking")
-        st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
-
-        st.download_button(
-            "⬇ Download CSV",
-            df.to_csv(index=False),
-            file_name="nse_order_intelligence.csv"
-        )
-    else:
-        st.warning("No qualifying orders found.")
-
-# ============================================================
-# FOOTER
-# ============================================================
-st.markdown("""
----
-**Designed by:**  
-**Gaurav Singh Yadav**  
-📦 NSE Order Flow | 🧠 Institutional Intelligence  
-📧 yadav.gauravsingh@gmail.com
-""")
+            "Market Cap ₹Cr": round(market_cap, 2) if market_cap else "Not Found",
+            "Order % of Market Cap": order_pct,_
