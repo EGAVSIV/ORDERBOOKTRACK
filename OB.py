@@ -189,9 +189,12 @@ if "orders_df" in st.session_state and st.session_state.orders_df is not None:
     # ========================================================
     # IMPACT ANALYSIS TABLE (ALWAYS SHOWS)
     # ========================================================
-    results = []
+# ========================================================
+# IMPACT ANALYSIS TABLE (ALWAYS SHOWS)
+# ========================================================
+results = []
 
-    for _, r in orders.iterrows():
+for _, r in orders.iterrows():
     pdf_text = read_nse_pdf_text(r.attchmntFile)
 
     order_val = extract_total_order_value(pdf_text)
