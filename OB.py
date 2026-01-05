@@ -206,4 +206,5 @@ if "orders_df" in st.session_state and st.session_state.orders_df is not None:
             "Total Order Value ₹Cr": order_val if order_val else "Not Found",
             "Completion Duration": duration,
             "Market Cap ₹Cr": round(market_cap, 2) if market_cap else "Not Found",
-            "Order % of Market Cap": order_pct,_
+            "Order % of Market Cap": order_pct,_  
+            })
