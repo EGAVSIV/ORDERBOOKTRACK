@@ -1,5 +1,5 @@
 # ============================================================
-# NSE ORDER INTELLIGENCE – FINAL STABLE VERSION
+# NSE ORDER INTELLIGENCE – FINAL STABLE VERSION (ENHANCED)
 # ============================================================
 
 import streamlit as st
@@ -48,7 +48,7 @@ def make_clickable(url):
     return f'<a href="{url}" target="_blank">📄 Open PDF</a>'
 
 # ============================================================
-# READ NSE PDF (CLOUD SAFE)
+# READ NSE PDF
 # ============================================================
 @st.cache_data(ttl=3600)
 def read_nse_pdf_text(pdf_url):
@@ -99,22 +99,56 @@ def extract_total_duration(text):
     return "Not Found"
 
 # ============================================================
-# FETCH MARKET CAP FROM SCREENER
+# FETCH FULL FINANCIAL DATA FROM SCREENER
 # ============================================================
 @st.cache_data(ttl=3600)
-def fetch_market_cap_screener(symbol):
+def fetch_financials_screener(symbol):
+    data = {
+        "Market Cap": None,
+        "Current Price": None,
+        "Stock P/E": None,
+        "Industry P/E": None,
+        "Book Value": None,
+        "ROCE": None,
+        "ROE": None,
+        "Dividend Yield": None,
+        "Promoter Holding": None
+    }
+
     try:
         url = f"https://www.screener.in/company/{symbol}/consolidated/"
         r = requests.get(url, timeout=10)
         soup = BeautifulSoup(r.text, "html.parser")
 
         for li in soup.select("li"):
-            if "Market Cap" in li.text:
-                val = li.find("span", class_="number").text
-                return float(val.replace(",", ""))
-        return None
+            text = li.text.strip()
+
+            def num():
+                span = li.find("span", class_="number")
+                return span.text.strip() if span else None
+
+            if text.startswith("Market Cap"):
+                data["Market Cap"] = num()
+            elif text.startswith("Current Price"):
+                data["Current Price"] = num()
+            elif text.startswith("Stock P/E"):
+                data["Stock P/E"] = num()
+            elif text.startswith("Industry P/E"):
+                data["Industry P/E"] = num()
+            elif text.startswith("Book Value"):
+                data["Book Value"] = num()
+            elif text.startswith("ROCE"):
+                data["ROCE"] = num()
+            elif text.startswith("ROE"):
+                data["ROE"] = num()
+            elif text.startswith("Dividend Yield"):
+                data["Dividend Yield"] = num()
+            elif text.startswith("Promoter Holding"):
+                data["Promoter Holding"] = num()
+
+        return data
     except:
-        return None
+        return data
 
 # ============================================================
 # STREAMLIT CONFIG
@@ -187,31 +221,42 @@ if "orders_df" in st.session_state and st.session_state.orders_df is not None:
     st.markdown(view.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     # ========================================================
-    # IMPACT ANALYSIS TABLE (ALWAYS SHOWS)
+    # IMPACT ANALYSIS WITH FINANCIAL DATA
     # ========================================================
-# ========================================================
-# IMPACT ANALYSIS TABLE (ALWAYS SHOWS)
-# ========================================================
-results = []
+    results = []
 
-for _, r in orders.iterrows():
-    pdf_text = read_nse_pdf_text(r.attchmntFile)
+    for _, r in orders.iterrows():
+        pdf_text = read_nse_pdf_text(r.attchmntFile)
+        order_val = extract_total_order_value(pdf_text)
+        duration = extract_total_duration(pdf_text)
 
-    order_val = extract_total_order_value(pdf_text)
-    duration = extract_total_duration(pdf_text)
-    market_cap = fetch_market_cap_screener(r.symbol)
+        fin = fetch_financials_screener(r.symbol)
 
-    order_pct = (
-        round((order_val / market_cap) * 100, 2)
-        if order_val and market_cap else "NA"
-    )
+        try:
+            mcap = float(fin["Market Cap"].replace(",", ""))
+        except:
+            mcap = None
 
-    results.append({
-        "Stock": r.symbol,
-        "Company": r.sm_name,
-        "Total Order Value ₹Cr": order_val if order_val else "Not Found",
-        "Completion Duration": duration,
-        "Market Cap ₹Cr": round(market_cap, 2) if market_cap else "Not Found",
-        "Order % of Market Cap": order_pct
-    })
+        order_pct = round((order_val / mcap) * 100, 2) if order_val and mcap else "NA"
 
+        results.append({
+            "Stock": r.symbol,
+            "Company": r.sm_name,
+            "Total Order Value ₹Cr": order_val if order_val else "Not Found",
+            "Completion Duration": duration,
+            "Market Cap ₹Cr": fin["Market Cap"],
+            "Order % of Market Cap": order_pct,
+            "Current Price": fin["Current Price"],
+            "Stock P/E": fin["Stock P/E"],
+            "Industry P/E": fin["Industry P/E"],
+            "Book Value": fin["Book Value"],
+            "ROCE %": fin["ROCE"],
+            "ROE %": fin["ROE"],
+            "Dividend Yield %": fin["Dividend Yield"],
+            "Promoter Holding %": fin["Promoter Holding"],
+            "Screener Link": screener_link(r.symbol)
+        })
+
+    df = pd.DataFrame(results)
+    st.subheader("📊 Order Impact + Financial Strength")
+    st.markdown(df.to_html(escape=False, index=False), unsafe_allow_html=True)
