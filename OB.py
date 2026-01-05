@@ -192,19 +192,23 @@ if "orders_df" in st.session_state and st.session_state.orders_df is not None:
     results = []
 
     for _, r in orders.iterrows():
-        pdf_text = read_nse_pdf_text(r.attchmntFile)
+    pdf_text = read_nse_pdf_text(r.attchmntFile)
 
-        order_val = extract_total_order_value(pdf_text)
-        duration = extract_total_duration(pdf_text)
-        market_cap = fetch_market_cap_screener(r.symbol)
+    order_val = extract_total_order_value(pdf_text)
+    duration = extract_total_duration(pdf_text)
+    market_cap = fetch_market_cap_screener(r.symbol)
 
-        order_pct = round((order_val / market_cap) * 100, 2) if order_val and market_cap else "NA"
+    order_pct = (
+        round((order_val / market_cap) * 100, 2)
+        if order_val and market_cap else "NA"
+    )
 
-        results.append({
-            "Stock": r.symbol,
-            "Company": r.sm_name,
-            "Total Order Value ₹Cr": order_val if order_val else "Not Found",
-            "Completion Duration": duration,
-            "Market Cap ₹Cr": round(market_cap, 2) if market_cap else "Not Found",
-            "Order % of Market Cap": order_pct,_  
-            })
+    results.append({
+        "Stock": r.symbol,
+        "Company": r.sm_name,
+        "Total Order Value ₹Cr": order_val if order_val else "Not Found",
+        "Completion Duration": duration,
+        "Market Cap ₹Cr": round(market_cap, 2) if market_cap else "Not Found",
+        "Order % of Market Cap": order_pct
+    })
+
