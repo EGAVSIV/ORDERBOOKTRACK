@@ -1,5 +1,5 @@
 # ============================================================
-# NSE ORDER INTELLIGENCE – FINAL STABLE VERSION (ENHANCED)
+# NSE ORDER INTELLIGENCE – FINAL STABLE VERSION (FULL)
 # ============================================================
 
 import streamlit as st
@@ -41,8 +41,11 @@ else:
 # ============================================================
 # HELPERS
 # ============================================================
+def screener_url(symbol):
+    return f"https://www.screener.in/company/{symbol}/consolidated/"
+
 def screener_link(symbol):
-    return f'<a href="https://www.screener.in/company/{symbol}/consolidated/" target="_blank">📊 Financials</a>'
+    return f'<a href="{screener_url(symbol)}" target="_blank">📊 Financials</a>'
 
 def make_clickable(url):
     return f'<a href="{url}" target="_blank">📄 Open PDF</a>'
@@ -99,52 +102,51 @@ def extract_total_duration(text):
     return "Not Found"
 
 # ============================================================
-# FETCH FULL FINANCIAL DATA FROM SCREENER
+# FETCH FINANCIAL DATA FROM SCREENER (WORKING)
 # ============================================================
 @st.cache_data(ttl=3600)
-def fetch_financials_screener(symbol):
+def fetch_financials_from_screener(url):
     data = {
-        "Market Cap": None,
-        "Current Price": None,
+        "Market Cap ₹Cr": None,
+        "Current Price ₹": None,
         "Stock P/E": None,
         "Industry P/E": None,
-        "Book Value": None,
-        "ROCE": None,
-        "ROE": None,
-        "Dividend Yield": None,
-        "Promoter Holding": None
+        "Book Value ₹": None,
+        "ROCE %": None,
+        "ROE %": None,
+        "Dividend Yield %": None,
+        "Promoter Holding %": None
     }
 
     try:
-        url = f"https://www.screener.in/company/{symbol}/consolidated/"
         r = requests.get(url, timeout=10)
         soup = BeautifulSoup(r.text, "html.parser")
 
         for li in soup.select("li"):
-            text = li.text.strip()
+            label = li.text.lower()
+            span = li.find("span", class_="number")
+            if not span:
+                continue
+            val = span.text.strip()
 
-            def num():
-                span = li.find("span", class_="number")
-                return span.text.strip() if span else None
-
-            if text.startswith("Market Cap"):
-                data["Market Cap"] = num()
-            elif text.startswith("Current Price"):
-                data["Current Price"] = num()
-            elif text.startswith("Stock P/E"):
-                data["Stock P/E"] = num()
-            elif text.startswith("Industry P/E"):
-                data["Industry P/E"] = num()
-            elif text.startswith("Book Value"):
-                data["Book Value"] = num()
-            elif text.startswith("ROCE"):
-                data["ROCE"] = num()
-            elif text.startswith("ROE"):
-                data["ROE"] = num()
-            elif text.startswith("Dividend Yield"):
-                data["Dividend Yield"] = num()
-            elif text.startswith("Promoter Holding"):
-                data["Promoter Holding"] = num()
+            if "market cap" in label:
+                data["Market Cap ₹Cr"] = val
+            elif "current price" in label:
+                data["Current Price ₹"] = val
+            elif "stock p/e" in label:
+                data["Stock P/E"] = val
+            elif "industry pe" in label:
+                data["Industry P/E"] = val
+            elif "book value" in label:
+                data["Book Value ₹"] = val
+            elif "roce" in label:
+                data["ROCE %"] = val
+            elif "roe" in label:
+                data["ROE %"] = val
+            elif "dividend yield" in label:
+                data["Dividend Yield %"] = val
+            elif "promoter holding" in label:
+                data["Promoter Holding %"] = val
 
         return data
     except:
@@ -216,12 +218,12 @@ if "orders_df" in st.session_state and st.session_state.orders_df is not None:
 
     st.subheader("🔁 NSE Order Announcements")
     view = orders[["symbol", "sm_name", "desc", "Date", "attchmntFile"]].copy()
-    view["Financials"] = view["symbol"].apply(screener_link)
     view["attchmntFile"] = view["attchmntFile"].apply(make_clickable)
+    view["Financials"] = view["symbol"].apply(screener_link)
     st.markdown(view.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     # ========================================================
-    # IMPACT ANALYSIS WITH FINANCIAL DATA
+    # IMPACT ANALYSIS TABLE (WITH FINANCIALS)
     # ========================================================
     results = []
 
@@ -230,10 +232,11 @@ if "orders_df" in st.session_state and st.session_state.orders_df is not None:
         order_val = extract_total_order_value(pdf_text)
         duration = extract_total_duration(pdf_text)
 
-        fin = fetch_financials_screener(r.symbol)
+        url = screener_url(r.symbol)
+        fin = fetch_financials_from_screener(url)
 
         try:
-            mcap = float(fin["Market Cap"].replace(",", ""))
+            mcap = float(fin["Market Cap ₹Cr"].replace(",", ""))
         except:
             mcap = None
 
@@ -242,19 +245,21 @@ if "orders_df" in st.session_state and st.session_state.orders_df is not None:
         results.append({
             "Stock": r.symbol,
             "Company": r.sm_name,
-            "Total Order Value ₹Cr": order_val if order_val else "Not Found",
+            "Total Order Value ₹Cr": order_val or "Not Found",
             "Completion Duration": duration,
-            "Market Cap ₹Cr": fin["Market Cap"],
             "Order % of Market Cap": order_pct,
-            "Current Price": fin["Current Price"],
+
+            "Market Cap ₹Cr": fin["Market Cap ₹Cr"],
+            "Current Price ₹": fin["Current Price ₹"],
             "Stock P/E": fin["Stock P/E"],
             "Industry P/E": fin["Industry P/E"],
-            "Book Value": fin["Book Value"],
-            "ROCE %": fin["ROCE"],
-            "ROE %": fin["ROE"],
-            "Dividend Yield %": fin["Dividend Yield"],
-            "Promoter Holding %": fin["Promoter Holding"],
-            "Screener Link": screener_link(r.symbol)
+            "Book Value ₹": fin["Book Value ₹"],
+            "ROCE %": fin["ROCE %"],
+            "ROE %": fin["ROE %"],
+            "Dividend Yield %": fin["Dividend Yield %"],
+            "Promoter Holding %": fin["Promoter Holding %"],
+
+            "Screener": f'<a href="{url}" target="_blank">📊 View</a>'
         })
 
     df = pd.DataFrame(results)
