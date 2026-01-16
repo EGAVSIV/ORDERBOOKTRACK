@@ -1,4 +1,6 @@
 import streamlit as st
+
+
 import requests
 import pandas as pd
 import re
@@ -126,51 +128,64 @@ def nse_session():
 @st.cache_data(ttl=900)
 def fetch_nse_orders_range(start_date, end_date):
     s = nse_session()
-
-    # Mandatory homepage hit to get cookies
-    home = s.get("https://www.nseindia.com", timeout=10)
-    if home.status_code != 200:
-        st.error("NSE homepage not reachable")
-        return pd.DataFrame()
+    s.get("https://www.nseindia.com", timeout=5)
 
     url = "https://www.nseindia.com/api/corporate-announcements"
     params = {
         "index": "equities",
         "from_date": start_date.strftime("%d-%m-%Y"),
-        "to_date": end_date.strftime("%d-%m-%Y"),
+        "to_date": end_date.strftime("%d-%m-%Y")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     }
 
-    r = s.get(url, params=params, timeout=15)
 
-    # 🔐 HARD CHECKS
-    if r.status_code != 200:
-        st.error(f"NSE API failed with status {r.status_code}")
-        return pd.DataFrame()
 
-    if not r.text or r.text.strip() == "":
-        st.warning("Empty response from NSE")
-        return pd.DataFrame()
 
-    if not r.text.strip().startswith("["):
-        # NSE returned HTML or error page
-        st.error("NSE blocked the request (Non-JSON response)")
-        return pd.DataFrame()
-
-    try:
-        data = r.json()
-    except Exception as e:
-        st.error("JSON decode failed (NSE returned invalid data)")
-        return pd.DataFrame()
-
-    if not data:
-        return pd.DataFrame()
-
-    df = pd.DataFrame(data)
-
-    if "sort_date" in df.columns:
-        df["Date"] = pd.to_datetime(df["sort_date"], errors="coerce")
-
-    return df
 
 
 
@@ -183,23 +198,18 @@ def fetch_nse_orders_range(start_date, end_date):
 def fetch_nse_equity(symbol):
     try:
         s = nse_session()
-        s.get("https://www.nseindia.com", timeout=10)
+        s.get("https://www.nseindia.com", timeout=5)
 
         url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
-        r = s.get(url, timeout=10)
-
-        if r.status_code != 200 or not r.text.startswith("{"):
-            return None
-
+        r = s.get(url, timeout=5)
         data = r.json()
 
         return {
-            "marketCap": data.get("metadata", {}).get("marketCap"),
-            "sector": data.get("metadata", {}).get("industry", "NA")
+            "marketCap": data["metadata"].get("marketCap"),
+            "sector": data["metadata"].get("industry", "NA")
         }
     except:
         return None
-
 
 # ============================================================
 # DATE SELECTION
@@ -325,4 +335,3 @@ Gaurav Singh Yadav**
 📦 NSE Order Flow | 🧠 Institutional Intelligence  
 📱 +91-8003994518  
 📧 yadav.gauravsingh@gmail.com
-""")
