@@ -126,22 +126,52 @@ def nse_session():
 @st.cache_data(ttl=900)
 def fetch_nse_orders_range(start_date, end_date):
     s = nse_session()
-    s.get("https://www.nseindia.com", timeout=5)
+
+    # Mandatory homepage hit to get cookies
+    home = s.get("https://www.nseindia.com", timeout=10)
+    if home.status_code != 200:
+        st.error("NSE homepage not reachable")
+        return pd.DataFrame()
 
     url = "https://www.nseindia.com/api/corporate-announcements"
     params = {
         "index": "equities",
         "from_date": start_date.strftime("%d-%m-%Y"),
-        "to_date": end_date.strftime("%d-%m-%Y")
-
-
-
-
-
-
-
-
+        "to_date": end_date.strftime("%d-%m-%Y"),
     }
+
+    r = s.get(url, params=params, timeout=15)
+
+    # 🔐 HARD CHECKS
+    if r.status_code != 200:
+        st.error(f"NSE API failed with status {r.status_code}")
+        return pd.DataFrame()
+
+    if not r.text or r.text.strip() == "":
+        st.warning("Empty response from NSE")
+        return pd.DataFrame()
+
+    if not r.text.strip().startswith("["):
+        # NSE returned HTML or error page
+        st.error("NSE blocked the request (Non-JSON response)")
+        return pd.DataFrame()
+
+    try:
+        data = r.json()
+    except Exception as e:
+        st.error("JSON decode failed (NSE returned invalid data)")
+        return pd.DataFrame()
+
+    if not data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(data)
+
+    if "sort_date" in df.columns:
+        df["Date"] = pd.to_datetime(df["sort_date"], errors="coerce")
+
+    return df
+
 
 
     r = s.get(url, params=params, timeout=10)
