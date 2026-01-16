@@ -183,18 +183,23 @@ def fetch_nse_orders_range(start_date, end_date):
 def fetch_nse_equity(symbol):
     try:
         s = nse_session()
-        s.get("https://www.nseindia.com", timeout=5)
+        s.get("https://www.nseindia.com", timeout=10)
 
         url = f"https://www.nseindia.com/api/quote-equity?symbol={symbol}"
-        r = s.get(url, timeout=5)
+        r = s.get(url, timeout=10)
+
+        if r.status_code != 200 or not r.text.startswith("{"):
+            return None
+
         data = r.json()
 
         return {
-            "marketCap": data["metadata"].get("marketCap"),
-            "sector": data["metadata"].get("industry", "NA")
+            "marketCap": data.get("metadata", {}).get("marketCap"),
+            "sector": data.get("metadata", {}).get("industry", "NA")
         }
     except:
         return None
+
 
 # ============================================================
 # DATE SELECTION
