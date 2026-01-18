@@ -328,7 +328,7 @@ if st.session_state.orders_df is not None:
 # ============================================================
 # FOOTER
 # ============================================================
-st.markdown("""
+st.markdown(""
 ---
 **Designed by:-  
 Gaurav Singh Yadav**  
