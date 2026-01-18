@@ -325,13 +325,3 @@ if st.session_state.orders_df is not None:
     else:
         st.warning("No qualifying big orders found.")
 
-# ============================================================
-# FOOTER
-# ============================================================
-st.markdown(""
----
-**Designed by:-  
-Gaurav Singh Yadav**  
-📦 NSE Order Flow | 🧠 Institutional Intelligence  
-📱 +91-8003994518  
-📧 yadav.gauravsingh@gmail.com
